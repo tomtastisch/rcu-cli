@@ -43,6 +43,7 @@ if [[ -L "$RCU_LAUNCHER" ]]; then
     fi
 elif [[ -f "$RCU_LAUNCHER" ]]; then
     # Check if it's the RCU launcher by content
+    # shellcheck disable=SC2016
     if grep -qF 'RCU_BUNDLE="$HOME/.local/share/utm/rcu/current"' "$RCU_LAUNCHER" 2>/dev/null; then
         rm "$RCU_LAUNCHER"
         msg '✓ Removed launcher: ~/.local/bin/rcu'

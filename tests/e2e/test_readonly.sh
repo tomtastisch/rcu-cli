@@ -68,9 +68,10 @@ fi
 total=$((total + 1))
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/thi-clion-ed25519}"
 if [[ -r "$SSH_KEY" ]]; then
-    if ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+    ssh_result=$(ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
         -o BatchMode=yes -o ConnectTimeout=4 -o ConnectionAttempts=1 \
-        -p 22 lars@192.168.64.2 'id -un' 2>/dev/null | grep -qx 'lars'; then
+        -p 22 lars@192.168.64.2 'id -un' 2>/dev/null) || true
+    if [[ "$ssh_result" == "lars" ]]; then
         PASS=$((PASS + 1))
         printf '  ✓ SSH probe to VM successful\n'
     else
