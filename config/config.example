@@ -1,0 +1,12 @@
+# Local trusted shell assignments. Private machine configuration, no secrets.
+# Do not copy values from untrusted sources.
+# The SSH host fingerprint MUST be verified by the operator before initial connection.
+
+VM_UUID='A16B662F-A8E9-4615-B0E9-A16BA73BA7E7'
+VM_NAME='Virtuelle Maschine'
+SSH_HOST='192.168.64.2'
+SSH_USER='lars'
+SSH_PORT=22
+SSH_KEY="$HOME/.ssh/thi-clion-ed25519"
+WAIT_SECONDS=120
+UTMCTL='/Applications/UTM.app/Contents/MacOS/utmctl'

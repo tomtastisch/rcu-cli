@@ -1,0 +1,97 @@
+#!/bin/bash
+# bin/rcu — Main entry point for RCU (Remote Control Unit).
+# Modular dispatcher: loads core modules, then dispatches to command modules.
+set -euo pipefail
+
+# Resolve bundle root
+_rcu_resolve_root() {
+    local script_path
+    # shellcheck disable=SC1007
+    script_path="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s' "$(dirname "$script_path")"
+}
+
+RCU_BUNDLE_ROOT="${RCU_BUNDLE_ROOT:-$(_rcu_resolve_root)}"
+
+# Load core modules (order matters: config → progress → utm → ssh)
+# shellcheck source=core/config.sh
+source "$RCU_BUNDLE_ROOT/core/config.sh"
+# shellcheck source=core/progress.sh
+source "$RCU_BUNDLE_ROOT/core/progress.sh"
+# shellcheck source=core/utm.sh
+source "$RCU_BUNDLE_ROOT/core/utm.sh"
+# shellcheck source=core/ssh.sh
+source "$RCU_BUNDLE_ROOT/core/ssh.sh"
+
+# Load command modules
+# shellcheck source=commands/start.sh
+source "$RCU_BUNDLE_ROOT/commands/start.sh"
+# shellcheck source=commands/connect.sh
+source "$RCU_BUNDLE_ROOT/commands/connect.sh"
+# shellcheck source=commands/shell.sh
+source "$RCU_BUNDLE_ROOT/commands/shell.sh"
+# shellcheck source=commands/stop.sh
+source "$RCU_BUNDLE_ROOT/commands/stop.sh"
+# shellcheck source=commands/health.sh
+source "$RCU_BUNDLE_ROOT/commands/health.sh"
+# shellcheck source=commands/status.sh
+source "$RCU_BUNDLE_ROOT/commands/status.sh"
+# shellcheck source=commands/doctor.sh
+source "$RCU_BUNDLE_ROOT/commands/doctor.sh"
+
+# --- macOS gate (skip in test mode) ---
+if [[ "${RCU_TEST:-0}" != 1 ]]; then
+    [[ "$(uname -s)" == Darwin ]] || {
+        printf 'ERROR: RCU requires macOS. Run on the macOS host, not inside a VM.\n' >&2
+        exit 1
+    }
+fi
+
+# --- Dispatch ---
+if [[ $# -eq 0 || "${1:-}" == help || "${1:-}" == --help ]]; then
+    rcu_show_help
+    exit 0
+fi
+
+case "${1:-}" in
+    help|--help)
+        rcu_show_help
+        exit 0
+        ;;
+    doctor)
+        cmd_doctor
+        ;;
+    utm)
+        shift
+        case "${1:-}" in
+            start)   cmd_utm_start ;;
+            connect) cmd_utm_connect ;;
+            shell)   cmd_utm_shell ;;
+            stop)    cmd_utm_stop ;;
+            health)  cmd_utm_health ;;
+            status)  cmd_utm_status ;;
+            *)
+                printf 'ERROR: Unknown utm action: %s\n' "${1:-}" >&2
+                printf 'Usage: rcu utm {start|connect|shell|stop|health|status}\n' >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    update)
+        printf 'ERROR: Use the installer to update: RCU_NEW_VERSION=X.Y.Z ./installer/update.sh <new-bundle>\n' >&2
+        exit 1
+        ;;
+    rollback)
+        printf 'ERROR: Use the installer to rollback: ./installer/rollback.sh\n' >&2
+        exit 1
+        ;;
+    uninstall)
+        printf 'ERROR: Use the installer to uninstall: ./installer/uninstall.sh [--purge-data]\n' >&2
+        exit 1
+        ;;
+    *)
+        printf 'ERROR: Unknown command: %s\n' "$1" >&2
+        printf 'Usage: rcu {help|doctor|utm}\n' >&2
+        exit 1
+        ;;
+esac
