@@ -1,4 +1,7 @@
 # Local trusted shell assignments. Private machine configuration, no secrets.
+# Do not copy values from untrusted sources.
+# The SSH host fingerprint MUST be verified by the operator before initial connection.
+
 VM_NAME='Virtuelle Maschine'
 SSH_HOST='192.168.64.2'
 SSH_USER='lars'
