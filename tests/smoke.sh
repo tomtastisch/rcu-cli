@@ -94,7 +94,7 @@ expect 'installed launcher can load modules and show help' "$HOME/.local/bin/rcu
 expect 'install adds managed zsh PATH once' grep -Fxq '# rcu-cli: managed PATH' "$HOME/.zshrc"
 expect 'first install is idempotent' /bin/bash "$src/install.sh"
 expect 'no duplicate zsh marker' test "$(grep -Fc '# rcu-cli: managed PATH' "$HOME/.zshrc")" -eq 1
-expect 'initial version selected' test "$(current_version)" = 0.3.0
+expect 'initial version selected' test "$(current_version)" = 0.3.1
 expect 'health with mocked guest' "$HOME/.local/bin/rcu" utm health
 expect 'connect with mocked guest' "$HOME/.local/bin/rcu" utm connect
 connect_output="$("$HOME/.local/bin/rcu" utm connect 2>&1)"
@@ -146,19 +146,19 @@ cp "$case_dir/good-config" "$RCU_CONFIG"
 
 # Prepare another tested release and switch by the installed update command.
 cp -R "$src" "$case_dir/version2"
-printf '0.3.1\n' > "$case_dir/version2/VERSION"
+printf '0.3.2\n' > "$case_dir/version2/VERSION"
 expect 'update command installs new release' "$HOME/.local/bin/rcu" update "$case_dir/version2"
-expect 'new version selected' test "$(current_version)" = 0.3.1
-expect 'previous release retained' test "$(previous_version)" = 0.3.0
+expect 'new version selected' test "$(current_version)" = 0.3.2
+expect 'previous release retained' test "$(previous_version)" = 0.3.1
 expect 'rollback works on Bash 3.2 syntax' "$HOME/.local/bin/rcu" rollback
-expect 'rollback selects earlier release' test "$(current_version)" = 0.3.0
+expect 'rollback selects earlier release' test "$(current_version)" = 0.3.1
 
 # Failed update must leave the active release unchanged.
 cp -R "$src" "$case_dir/bad-bundle"
-printf '0.3.2\n' > "$case_dir/bad-bundle/VERSION"
+printf '0.3.3\n' > "$case_dir/bad-bundle/VERSION"
 printf 'syntax(\n' >> "$case_dir/bad-bundle/lib/backends/utm.sh"
 if "$HOME/.local/bin/rcu" update "$case_dir/bad-bundle" >/dev/null 2>&1; then fail 'corrupt update rejected'; else pass 'corrupt update rejected'; fi
-expect 'current release unchanged after failed update' test "$(current_version)" = 0.3.0
+expect 'current release unchanged after failed update' test "$(current_version)" = 0.3.1
 
 # Foreign launcher collisions must not overwrite the foreign file.
 expect 'uninstall through installed CLI' "$HOME/.local/bin/rcu" uninstall

@@ -81,12 +81,22 @@ progress_bar() {
   for ((i=0; i<empty; i++)); do bar="${bar}-"; done
   printf '[%s] %3d%%' "$bar" "$percent"
 }
+WAIT_STATUS_LINES=0
 render_wait_status() {
-  local elapsed="$1" state="$2" ssh_state="$3" percent="$4" bar
+  local elapsed="$1" state="$2" ssh_state="$3" percent="$4" bar rendered
   bar="$(progress_bar "$percent")"
   if ui_enabled; then
-    ui_card 'RCU  |  SSH-BEREITSCHAFT' \
+    rendered="$(gum style --border rounded --border-foreground 39 --padding '0 1' \
+      'RCU  |  SSH-BEREITSCHAFT' \
       "VM: $state"$'\n'"SSH: $ssh_state"$'\n'"Wartefenster: $bar"$'\n'"Vergangen: ${elapsed}s / ${WAIT_SECONDS}s"
+    )"
+    if ((WAIT_STATUS_LINES > 0)); then
+      printf '\033[%dA\033[0J' "$WAIT_STATUS_LINES"
+    fi
+    printf '%s\n' "$rendered"
+    if ((WAIT_STATUS_LINES == 0)); then
+      WAIT_STATUS_LINES="$(printf '%s\n' "$rendered" | wc -l | tr -d ' ')"
+    fi
   else
     printf 'SSH_WAIT elapsed=%ss UTM=%s SSH=%s\n' "$elapsed" "$state" "$ssh_state"
   fi
@@ -105,11 +115,21 @@ ssh_opts=(-p "$SSH_PORT" -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChe
 ssh_probe() { local result; result="$(ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" 'id -un' 2>/dev/null)" || return 1; [[ "$result" == "$SSH_USER" ]]; }
 ssh_terminal() { ssh -tt "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST"; }
 wait_for_ssh() {
-  local n=0 state percent
+  local n=0 state percent current_percent
   while ((n<WAIT_SECONDS)); do
     state="$(utm_state 2>/dev/null || printf 'unknown')"
     if ssh_probe; then
-      render_wait_status "$n" "$state" 'authenticated' 100
+      current_percent=$((n*100/WAIT_SECONDS))
+      ((current_percent > 99)) && current_percent=99
+      if ui_enabled; then
+        while ((current_percent < 100)); do
+          current_percent=$((current_percent+1))
+          render_wait_status "$n" "$state" 'authenticated' "$current_percent"
+          sleep 0.01
+        done
+      else
+        render_wait_status "$n" "$state" 'authenticated' 100
+      fi
       return 0
     fi
     percent=$((n*100/WAIT_SECONDS))
