@@ -20,7 +20,7 @@ utm_start() {
     spin 'Requesting VM start' utm_cmd start "$VM_UUID" || die 'UTM VM start failed.'
   fi
   phase 2 'VM start reported or already running'
-  spin 'Waiting for SSH readiness' wait_probe || die 'SSH readiness timeout.'
+  wait_for_ssh || die 'SSH readiness timeout.'
   phase 3 'Remote SSH user authenticated'
   [[ "$(utm_state)" == started ]] || die 'UTM does not report started.'
   phase 4 'VM started and SSH ready'
@@ -29,13 +29,13 @@ utm_connect() {
   check; phase 1 'Validated local profile'; ensure_vm
   [[ "$(utm_state)" == started ]] || die 'VM not running.'
   phase 2 'UTM reports started'
-  spin 'Checking authenticated SSH' wait_probe || die 'SSH login not available.'
+  wait_for_ssh || die 'SSH login not available.'
   phase 3 'Remote SSH identity authenticated'; phase 4 'Connection ready'
 }
 utm_shell() {
   check; ensure_vm
   [[ "$(utm_state)" == started ]] || die 'VM not running.'
-  spin 'Checking SSH authentication' wait_probe || die 'SSH unavailable.'
+  wait_for_ssh || die 'SSH unavailable.'
   user_notice 'macOS-Host: Opening Debian VM shell; type exit to return to macOS.'
   ssh_terminal
 }
@@ -58,7 +58,7 @@ utm_health() {
   check; ensure_vm
   notice "UTM_STATUS=$(utm_state)"
   [[ "$(utm_state)" == started ]] || die 'VM not running.'
-  spin 'Checking SSH' ssh_probe || die 'SSH authentication failed.'
+  wait_for_ssh || die 'SSH authentication failed.'
   notice 'HEALTH=PASS (UTM + SSH only)'
 }
 utm_status() {

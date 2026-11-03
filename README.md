@@ -1,6 +1,6 @@
 # RCU – Remote Control Unit
 
-Version 0.2.0 · modulares Kommandozeilenprogramm für die Steuerung einer vorhandenen UTM-VM unter macOS.
+Version 0.3.0 · modulares Kommandozeilenprogramm für die Steuerung einer vorhandenen UTM-VM unter macOS.
 
 RCU läuft auf dem macOS-Host, nicht innerhalb der Debian-VM. Es nutzt UTM (`utmctl`) und OpenSSH, installiert keine VM und kopiert keine privaten SSH-Schlüssel. `rcu utm stop` fordert ausschließlich einen regulären Shutdown (`utmctl stop --request`) an.
 
@@ -29,6 +29,16 @@ Hinweis: Der Installer verändert bei Bedarf `~/.zshrc`. Ein Kindprozess kann de
 
 ## Befehle (macOS-Host)
 
+Der direkte Einstieg startet die VM bei Bedarf, wartet auf authentifizierte
+SSH-Bereitschaft und öffnet anschließend die Debian-Shell:
+
+```sh
+rcu
+```
+
+`exit` beendet nur die SSH-Shell und kehrt zum macOS-Terminal zurück; die VM
+bleibt laufen.
+
 | Befehl | Funktion |
 | --- | --- |
 | `rcu help` | Hilfe |
@@ -50,7 +60,7 @@ Der Installer übernimmt `config/config.example` nur bei fehlender Benutzerkonfi
 
 Installationen verwenden Staging und versionierte Releases mit atomarer Umschaltung des aktiven Links. Ein vorhandener früherer Release bleibt erhalten. Der Uninstaller archiviert das verwaltete Bundle, bewahrt die Konfiguration auf und entfernt nur eigene Launcher-/PATH-Einträge. Ein bekanntes älteres RCU-Rollback-Backup wird dabei nicht verändert.
 
-Die Prozentangaben der CLI beziehen sich auf nachweislich abgeschlossene Prüfschritte, **nicht** auf den numerischen Linux-Bootfortschritt. Während des Bootvorgangs werden der aktuelle UTM-Zustand und die SSH-Bereitschaft geprüft. Für den Gast ohne aktiven QEMU Guest Agent kann UTM keinen belastbaren numerischen Bootfortschritt liefern.
+Die Prozentangaben der CLI beziehen sich auf nachweislich abgeschlossene Prüfschritte, **nicht** auf den numerischen Linux-Bootfortschritt. Während des Bootvorgangs meldet die CLI zusätzlich die verstrichene Wartezeit sowie UTM- und SSH-Zustand. Für den Gast ohne aktiven QEMU Guest Agent kann UTM keinen belastbaren numerischen Bootfortschritt liefern.
 
 ## Tests und Nachweisgrenzen
 
@@ -60,6 +70,6 @@ Isolierte Tests (macOS-Host oder Linux mit Mocks):
 /bin/bash tests/smoke.sh
 ```
 
-Die Tests erzeugen ein temporäres HOME und verwenden simulierte UTM-, SSH-, Homebrew- und gum-Kommandos. Die Testprotokolle vom 03.11.2026 auf macOS zeigen 35 PASS und 0 FAIL in beiden Ausgangszuständen der VM. Zusätzlich wurde `rcu utm start` vom temporären Quellcode aus gegen die reale VM mit erfolgreicher SSH-Authentifizierung ausgeführt, einmal bei bereits laufender und einmal bei zuvor ausgeschalteter VM.
+Die Tests erzeugen ein temporäres HOME und verwenden simulierte UTM-, SSH-, Homebrew- und gum-Kommandos. Die aktuelle isolierte Suite prüft 40 Fälle mit 0 Fehlern. Zusätzlich wird der direkte `rcu`-Einstieg für eine gestoppte und eine laufende VM geprüft.
 
 Noch nicht vollständig abgenommen sind die produktive Installation vom GitHub-Checkout, die echte interaktive TTY-Darstellung und ein realer regulärer VM-Shutdown. Ein bestandener Mock-Test ersetzt diese Prüfungen nicht.
