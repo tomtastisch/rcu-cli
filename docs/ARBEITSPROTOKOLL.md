@@ -135,7 +135,7 @@ nicht aufgenommen.
 - **Betroffene Komponenten:** Git-Remote; Pull Request; Remote-Branch `main`.
 - **Ergebnis/Nachweis:** PR `https://github.com/tomtastisch/rcu-cli/pull/2` ist `MERGED`. Remote-`main` zeigt auf `823a7ddc80bf10d159160fce7fab878a24b1f454`. Greptile Review sowie beide Socket-Security-Checks sind PASS; Greptile TREX ist abgeschlossen mit `NEUTRAL`/`skipping` und nicht fehlgeschlagen.
 - **Status:** PASS
-- **Nächster Schritt:** Arbeitsprotokolländerung als Follow-up-PR nach `main` veröffentlichen und dessen finalen Remote-Stand verifizieren.
+- **Nächster Schritt:** Entfällt; der Follow-up-PR ist gemerged und der finale Remote-Stand verifiziert.
 
 ### Schritt 11 – Finalisierung des Arbeitsprotokolls
 
@@ -147,4 +147,4 @@ nicht aufgenommen.
 - **Betroffene Komponenten:** `docs/ARBEITSPROTOKOLL.md`; GitHub PR- und Main-Stand.
 - **Ergebnis/Nachweis:** Greptile Review `SUCCESS`, Socket Security Project Report `SUCCESS`, Socket Security Pull Request Alerts `SUCCESS`, Greptile TREX `NEUTRAL`/`skipping`; kein Check `FAILURE`.
 - **Status:** PASS
-- **Nächster Schritt:** Follow-up committen, PR erstellen/mergen und finalen `main`-Commit erneut prüfen.
+- **Nächster Schritt:** Entfällt; Abschluss-Gate vollständig PASS.
