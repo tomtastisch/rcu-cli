@@ -45,7 +45,7 @@ _rcu_parse_config() {
     [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || die 'Invalid configuration syntax.'
     key="${BASH_REMATCH[1]}"; raw="${BASH_REMATCH[2]}"
     case "$key" in
-      CONFIG_VERSION|VM_UUID|VM_NAME|SSH_HOST|SSH_USER|SSH_PORT|SSH_KEY|WAIT_SECONDS|UTMCTL|AUTH_MODE|ADDRESS_MODE) ;;
+      KEYCHAIN_SERVICE|CONFIG_VERSION|VM_UUID|VM_NAME|SSH_HOST|SSH_USER|SSH_PORT|SSH_KEY|WAIT_SECONDS|UTMCTL|AUTH_MODE|ADDRESS_MODE) ;;
       SSH_PASSWORD) LEGACY_SECRET=1; continue ;;
       *) die "Unknown configuration key: $key" ;;
     esac
@@ -62,7 +62,7 @@ _rcu_parse_config() {
 }
 CONF="${RCU_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rcu/config}"
 CONFIG_VERSION=''; VM_UUID=''; VM_NAME=''; SSH_HOST=''; SSH_USER=''; SSH_KEY=''
-AUTH_MODE=agent; ADDRESS_MODE=auto; SSH_PORT=22; WAIT_SECONDS=120; UTMCTL=''; LEGACY_SECRET=0
+KEYCHAIN_SERVICE=''; AUTH_MODE=agent; ADDRESS_MODE=auto; SSH_PORT=22; WAIT_SECONDS=120; UTMCTL=''; LEGACY_SECRET=0
 # Help and release management must remain usable even with a broken old profile.
 case "${1:-}" in help|--help|--version|setup|update|rollback|uninstall) ;; *) _rcu_parse_config "$CONF" ;; esac
 find_utmctl() {
@@ -88,6 +88,7 @@ check() {
   [[ "$WAIT_SECONDS" =~ ^[0-9]{1,4}$ ]] && ((10#$WAIT_SECONDS>=1 && 10#$WAIT_SECONDS<=3600)) || die 'Invalid WAIT_SECONDS.'
   SSH_PORT=$((10#$SSH_PORT)); WAIT_SECONDS=$((10#$WAIT_SECONDS))
   [[ "$AUTH_MODE" == agent || "$AUTH_MODE" == keychain ]] || die 'Invalid AUTH_MODE.'
+  [[ -z "$KEYCHAIN_SERVICE" || "$KEYCHAIN_SERVICE" == "rcu.vm.$VM_UUID" || "$KEYCHAIN_SERVICE" =~ ^rcu\.vm\.$VM_UUID\.[[:alnum:]]{12}$ ]] || die 'Invalid Keychain service for selected VM.'
   [[ "$ADDRESS_MODE" == auto || "$ADDRESS_MODE" == manual ]] || die 'Invalid ADDRESS_MODE.'
   [[ "$LEGACY_SECRET" == 0 ]] || die 'Legacy plaintext password refused. Run rcu setup to replace it with Keychain authentication.'
 }
@@ -121,7 +122,7 @@ ssh_run() {
   ssh_options
   local command=(ssh "${ssh_opts[@]}")
   if [[ "$AUTH_MODE" == keychain ]]; then
-    command=(env "RCU_KEYCHAIN_SERVICE=rcu.vm.$VM_UUID" "RCU_KEYCHAIN_ACCOUNT=$SSH_USER"
+    command=(env "RCU_KEYCHAIN_SERVICE=${KEYCHAIN_SERVICE:-rcu.vm.$VM_UUID}" "RCU_KEYCHAIN_ACCOUNT=$SSH_USER"
       "SSH_ASKPASS=$RCU_ROOT/lib/ssh-askpass" SSH_ASKPASS_REQUIRE=force "DISPLAY=${DISPLAY:-rcu:0}"
       "${command[@]}" -o BatchMode=no -o NumberOfPasswordPrompts=1 -o "PreferredAuthentications=password,keyboard-interactive")
   else command+=(-o BatchMode=yes); fi
@@ -195,7 +196,8 @@ show_help() {
   printf '%s\n' \
     '  rcu                   VM starten und Terminal öffnen' \
     '  rcu setup             VM und Gast-Zugang einmalig einrichten' \
-    '    --vm UUID --user NAME --auth agent|keychain [--key PATH]' \
+    '    --vm UUID --user NAME [--auth keychain|agent] [--key PATH]' \
+    '    Standard: Benutzername und Passwort einmalig speichern und prüfen.' \
     '    [--host HOST --port PORT]  Expliziter Zugang, z.B. Portweiterleitung' \
     '  rcu utm status        Nur Status lesen; kein VM-Start / Setup / Login' \
     '  rcu utm start         Starten und SSH prüfen' \

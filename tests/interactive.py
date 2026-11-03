@@ -3,6 +3,7 @@
 import os
 import pty
 import select
+import shutil
 import subprocess
 import tempfile
 import time
@@ -27,11 +28,17 @@ list) printf 'UUID Status Name\\n{UUID} started Renamed VM On Another Mac\\n' ;;
 ip-address) printf '10.33.44.55\\n' ;;
 esac''',
         'gum': '''case "$1" in
-choose) head -1 ;;
+choose) printf 'AUTH_CHOICE\\n' >> "$TEST_LOG"; head -1 ;;
 input) printf 'caseuser\\n' ;;
 style) shift; printf '%s\\n' "$@" ;;
 esac''',
         'security': '''printf 'security %s\\n' "$*" >> "$TEST_LOG"
+service=''
+for ((i=1; i<=$#; i++)); do
+    if [[ "${!i}" == -s ]]; then next=$((i+1)); service="${!next}"; fi
+done
+[[ -n "$service" ]] || exit 69
+if [[ "$1" == delete-generic-password ]]; then rm -f "$TEST_SECRET_STORE.$service"; exit 0; fi
 [[ "$1" == add-generic-password && "${!#}" == -w ]] || exit 70
 stty -echo
 trap 'stty echo' EXIT
@@ -40,17 +47,19 @@ printf 'NATIVE_PASSWORD: ' >&2
 sleep 0.1
 IFS= read -rs password
 printf '\\n' >&2
-printf '%s' "$password" > "$TEST_SECRET_STORE"
-chmod 600 "$TEST_SECRET_STORE"''',
+printf '%s' "$password" > "$TEST_SECRET_STORE.$service"
+chmod 600 "$TEST_SECRET_STORE.$service"''',
         'nc': 'exit 0',
         'ssh-keyscan': "printf '10.33.44.55 ssh-ed25519 AAAAsyntheticfixture\\n'",
         'ssh-keygen': '''case "$1" in
 -F) grep -q 'rcu-' "${@: -1}" ;;
 -lf) cat >/dev/null; printf '256 SHA256:synthetic-test-fingerprint (ED25519)\\n' ;;
 esac''',
-        'ssh': '''printf 'ssh %s\\n' "$*" >> "$TEST_LOG"
+        'ssh': '''[[ "${TEST_AUTH_FAIL:-0}" == 0 ]] || exit 255
+printf 'ssh %s\\n' "$*" >> "$TEST_LOG"
 [[ "${SSH_ASKPASS_REQUIRE:-}" == force && -x "${SSH_ASKPASS:-}" ]] || exit 71
 [[ "${RCU_KEYCHAIN_ACCOUNT:-}" == caseuser ]] || exit 72
+[[ -f "$TEST_SECRET_STORE.$RCU_KEYCHAIN_SERVICE" ]] || exit 74
 for arg in "$@"; do [[ "$arg" != 'id -un' ]] || printf 'caseuser\\n'; done''',
         'scp': '''printf 'scp %s\\n' "$*" >> "$TEST_LOG"
 printf 'ARG<%s>\\n' "$@" >> "$TEST_LOG"
@@ -100,13 +109,18 @@ exit "${TEST_SCP_EXIT:-0}"'''
     assert secret not in transcript.decode(errors='replace')
     assert secret not in log and secret not in profile.read_text()
     assert 'SSH_PASSWORD=' not in profile.read_text()
+    assert 'KEYCHAIN_SERVICE=\'rcu.vm.' + UUID + '.' in profile.read_text(), 'Setup needs a fresh credential slot before verification'
+    assert ' -U ' not in log, 'Setup must not overwrite the working credential before verifying'
     assert 'SSH_HOST=' not in profile.read_text()
     assert 'VM_NAME=' not in profile.read_text()
     assert sent_password and sent_trust
-    assert (base / 'fake-keychain').read_text() == secret
+    assert 'AUTH_CHOICE' not in log, 'Default setup must only request username and password'
+    assert log.count('ssh ') >= 3, 'Setup must authenticate before saving the profile'
+    enrolled = list(base.glob('fake-keychain.*'))
+    assert len(enrolled) == 1 and enrolled[0].read_text() == secret
     assert profile.stat().st_mode & 0o777 == 0o600
     assert 'rcu-' + UUID in (home / '.config/rcu/known_hosts').read_text()
-    print('PASS first-run PTY: VM/user/auth choice, native secret prompt, explicit host trust, private profile')
+    print('PASS first-run PTY: VM/user/password, native secret prompt, explicit host trust, private profile')
     print('PASS fixture secret absent from output, argv log and config')
     result = subprocess.run(['/bin/bash', str(ROOT / 'bin/rcu')], stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=8)
@@ -138,3 +152,53 @@ exit "${TEST_SCP_EXIT:-0}"'''
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
         assert result.returncode != 0 and not result.stdout
     print('PASS askpass rejects host trust, MFA and private-key passphrase prompts')
+
+    # Both first-run failure and failed reconfiguration must be transactional.
+    for existing in [False, True]:
+        rejected_home = base / ('rejected-existing' if existing else 'rejected-fresh')
+        rejected_home.mkdir()
+        if existing:
+            shutil.copytree(home / '.config', rejected_home / '.config')
+        rejected_profile = rejected_home / '.config/rcu/config'
+        previous = rejected_profile.read_bytes() if existing else None
+        previous_items = {f.name: f.read_bytes() for f in base.glob('fake-keychain.*')}
+        master, slave = pty.openpty()
+        process = subprocess.Popen(['/bin/bash', str(ROOT / 'bin/rcu')], stdin=slave,
+            stdout=slave, stderr=slave, env=dict(env, HOME=str(rejected_home),
+            XDG_CONFIG_HOME=str(rejected_home / '.config'), TEST_AUTH_FAIL='1'))
+        os.close(slave)
+        transcript = b''
+        password_sent = trust_sent = False
+        deadline = time.monotonic() + 12
+        try:
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], .1)[0]:
+                    try:
+                        data = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not data:
+                        break
+                    transcript += data
+                    if b'NATIVE_PASSWORD:' in transcript and not password_sent:
+                        os.write(master, (secret + '\n').encode())
+                        password_sent = True
+                    if b'Nur bei' in transcript and not trust_sent:
+                        os.write(master, b'yes\n')
+                        trust_sent = True
+                if process.poll() is not None:
+                    break
+            assert process.wait(timeout=2) != 0, 'Rejected password was accepted'
+            if existing:
+                assert rejected_profile.read_bytes() == previous, 'Working profile replaced'
+            else:
+                assert not rejected_profile.exists(), 'Unverified profile saved'
+            assert {f.name: f.read_bytes() for f in base.glob('fake-keychain.*')} == previous_items, 'Working credential changed or staging credential retained'
+            assert 'Einrichtung gespeichert' not in transcript.decode(errors='replace')
+            assert secret not in transcript.decode(errors='replace')
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            os.close(master)
+        print('PASS rejected password: profile and credentials preserved, failed enrollment removed')

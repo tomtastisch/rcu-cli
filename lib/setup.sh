@@ -31,7 +31,7 @@ save_profile() (
   temp="$(mktemp "$dir/.config.XXXXXX")"
   trap 'rm -f "$temp"' EXIT
   printf '# RCU host profile; passwords live in macOS Keychain.\nCONFIG_VERSION=1\n' > "$temp"
-  for key in VM_UUID SSH_USER SSH_PORT SSH_KEY AUTH_MODE ADDRESS_MODE WAIT_SECONDS UTMCTL; do
+  for key in VM_UUID SSH_USER SSH_PORT SSH_KEY AUTH_MODE KEYCHAIN_SERVICE ADDRESS_MODE WAIT_SECONDS UTMCTL; do
     value="${!key}"
     [[ "$value" != *\'* && "$value" != *\"* && "$value" != *'$'* && "$value" != *'`'* && "$value" != *';'* && "$value" != *'\'* && "$value" != *[$'\001'-$'\037'$'\177']* ]] || die "Unsupported profile value: $key"
     printf "%s='%s'\n" "$key" "$value" >> "$temp"
@@ -41,7 +41,7 @@ save_profile() (
   mv -f "$temp" "$CONF"
 )
 setup_profile() {
-  local selected='' requested_vm='' requested_user='' requested_auth='' requested_key='' requested_host='' requested_port=22 records line mode
+  local selected='' requested_vm='' requested_user='' requested_auth='' requested_key='' requested_host='' requested_port=22 records state token_file
   find_utmctl
   while (($#)); do
     [[ $# -ge 2 ]] || die 'Every setup flag needs a value.'
@@ -69,22 +69,46 @@ setup_profile() {
   [[ -n "$SSH_USER" ]] || SSH_USER="$(prompt_value 'Benutzername innerhalb der VM')"
   SSH_KEY="$requested_key"; SSH_PORT="$requested_port"; SSH_HOST="$requested_host"
   ADDRESS_MODE=auto; [[ -z "$SSH_HOST" ]] || ADDRESS_MODE=manual
-  AUTH_MODE="$requested_auth"
-  if [[ -z "$AUTH_MODE" ]]; then
-    mode="$(choose_line 'SSH-Anmeldung auswählen' $'Passwort · macOS-Keychain\nSSH-Agent / vorhandener Schlüssel')" || die 'Authentication selection cancelled.'
-    case "$mode" in Passwort*) AUTH_MODE=keychain ;; *) AUTH_MODE=agent ;; esac
-  fi
+  # Normal setup only asks for guest username and password. Advanced key-based
+  # access remains available through an explicit --auth agent flag.
+  AUTH_MODE="${requested_auth:-keychain}"
+  KEYCHAIN_SERVICE=''
   LEGACY_SECRET=0
   check
   [[ "$ADDRESS_MODE" != manual ]] || valid_host "$SSH_HOST" || die 'Invalid --host.'
   if [[ "$AUTH_MODE" == keychain ]]; then
     [[ -t 0 && -t 2 ]] || die 'Password enrollment requires an interactive macOS terminal; no password flags accepted.'
+    umask 077
+    [[ ! -L "$(dirname "$CONF")" && ! -L "$CONF" ]] || die 'Symlink configuration refused.'
+    mkdir -p "$(dirname "$CONF")"
+    [[ -O "$(dirname "$CONF")" ]] || die 'Configuration directory must be owned by current user.'
+    token_file="$(mktemp "$(dirname "$CONF")/.credential.XXXXXXXXXXXX")" || die 'Cannot create enrollment identifier.'
+    KEYCHAIN_SERVICE="rcu.vm.$VM_UUID.${token_file##*.}"
+    rm -f "$token_file"
+    # A new item keeps the previous working credential available on failure.
     user_notice 'VM-Passwort jetzt verdeckt im nativen Keychain-Prompt eingeben. macOS kann eine Keychain-Berechtigung abfragen.'
     # -w MUST be last without an argument: security reads and confirms securely.
     # No password in shell variables, environment, process arguments or files.
-    security_cmd add-generic-password -U -a "$SSH_USER" -s "rcu.vm.$VM_UUID" -w || die 'Keychain enrollment failed; profile not saved.'
+    security_cmd add-generic-password -a "$SSH_USER" -s "$KEYCHAIN_SERVICE" -w || die 'Keychain enrollment failed; profile not saved.'
+    trap 'security_cmd delete-generic-password -a "$SSH_USER" -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1 || true' EXIT
   fi
+  # Do not advertise a saved setup that cannot actually log in. Keep the old
+  # profile intact until host trust, guest networking and authentication pass.
+  ensure_vm
+  state="$(utm_state)" || die 'Cannot read VM state during setup.'
+  case "$state" in
+    started|starting|resuming) ;;
+    stopped)
+      user_notice 'UTM-VM wird für die einmalige Zugangsprüfung gestartet.'
+      bounded 15 "$UTMCTL" start "$VM_UUID" || die 'UTM VM start failed.' ;;
+    *) die "VM state is $state; cannot verify setup safely." ;;
+  esac
+  umask 077
+  [[ ! -L "$(dirname "$CONF")" && ! -L "$CONF" ]] || die 'Symlink configuration refused.'
+  mkdir -p "$(dirname "$CONF")"
+  wait_for_ssh || die 'Einrichtung nicht gespeichert: VM-Zugang konnte nicht bestätigt werden.'
   save_profile
+  [[ "$AUTH_MODE" != keychain ]] || trap - EXIT
   CONFIG_VERSION=1
-  ui_card 'RCU · Einrichtung gespeichert' "VM: ${selected#* }"$'\n'"Benutzer: $SSH_USER · Anmeldung: $AUTH_MODE · Netzwerk: $ADDRESS_MODE"
+  ui_card 'RCU · Einrichtung gespeichert und geprüft' "VM: ${selected#* }"$'\n'"Benutzer: $SSH_USER · Anmeldung: $AUTH_MODE · Netzwerk: $ADDRESS_MODE"
 }
