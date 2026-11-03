@@ -1,12 +1,60 @@
 #!/bin/bash
 set -euo pipefail
-RCU_ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+RCU_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/core.sh
 source "$RCU_ROOT/lib/core.sh"
 # shellcheck source=../lib/backends/utm.sh
 source "$RCU_ROOT/lib/backends/utm.sh"
 [[ "$(uname -s)" == Darwin || "${RCU_TEST:-0}" == 1 ]] || die 'Run rcu on macOS (host), not in Debian VM.'
-if [[ "${1:-}" == help || "${1:-}" == --help || $# -eq 0 ]]; then show_help; exit 0; fi
+
+# --- Top-level commands (not provider-gated) ---
+case "${1:-}" in
+  help|--help|"")
+    show_help; exit 0 ;;
+  update)
+    shift
+    install_script="$RCU_ROOT/install.sh"
+    [[ -f "$install_script" ]] || die "install.sh not found at $install_script"
+    exec bash "$install_script" "$@" ;;
+  rollback)
+    shift
+    prefix="$HOME/.local/share/rcu"
+    # Find the most recent backup
+    latest_backup=""
+    for d in "$prefix".backup.*; do
+      [[ -d "$d" ]] || continue
+      if [[ -z "$latest_backup" || "$d" > "$latest_backup" ]]; then
+        latest_backup="$d"
+      fi
+    done
+    [[ -n "$latest_backup" && -d "$latest_backup" ]] || die "No backup found for rollback"
+    [[ -f "$latest_backup/.rcu-managed" ]] || die "Backup is not a valid rcu installation"
+    # Verify integrity before restoring
+    /bin/bash -n "$latest_backup/bin/rcu" "$latest_backup/lib/core.sh" "$latest_backup/lib/backends/utm.sh" \
+      || die "Backup failed syntax validation; cannot rollback"
+    # Atomic swap
+    if [[ -d "$prefix" ]]; then
+      old_backup="$prefix.backup.$(date +%Y%m%d%H%M%S)"
+      mv -f "$prefix" "$old_backup" || die "Cannot back up current installation before rollback"
+    fi
+    mv -f "$latest_backup" "$prefix" || die "Cannot restore backup"
+    # Clean up old backups, keep last 3
+    mapfile -t backups < <(find "$(dirname "$prefix")" -maxdepth 1 -name "$(basename "$prefix").backup.*" -type d 2>/dev/null | sort -r)
+    if (( ${#backups[@]} > 3 )); then
+      for ((i=3; i<${#backups[@]}; i++)); do
+        rm -rf "${backups[$i]}"
+      done
+    fi
+    notice "Rolled back to $(basename "$latest_backup")"
+    exit 0 ;;
+  uninstall)
+    shift
+    install_script="$RCU_ROOT/install.sh"
+    [[ -f "$install_script" ]] || die "install.sh not found at $install_script"
+    exec bash "$install_script" --uninstall "$@" ;;
+esac
+
+# --- Provider commands ---
 [[ "$1" == utm ]] || die "Unknown provider '$1'; use: rcu utm <command>"
 shift
 case "${1:-}" in
