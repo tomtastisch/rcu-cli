@@ -64,6 +64,8 @@ for arg in "$@"; do [[ "$arg" != 'id -un' ]] || printf 'caseuser\\n'; done''',
         'scp': '''printf 'scp %s\\n' "$*" >> "$TEST_LOG"
 printf 'ARG<%s>\\n' "$@" >> "$TEST_LOG"
 [[ "${SSH_ASKPASS_REQUIRE:-}" == force ]] || exit 73
+[[ "${RCU_KEYCHAIN_ACCOUNT:-}" == caseuser ]] || exit 72
+[[ -f "$TEST_SECRET_STORE.$RCU_KEYCHAIN_SERVICE" ]] || exit 74
 exit "${TEST_SCP_EXIT:-0}"'''
     }
     for name, body in scripts.items():

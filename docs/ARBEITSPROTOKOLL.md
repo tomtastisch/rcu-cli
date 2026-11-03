@@ -5,7 +5,7 @@ ausgeführte Schritte. `macOS-Host` und `Debian-VM` kennzeichnen den
 Ausführungsort. Geheimnisse, Schlüsselmaterial und private Logdaten werden
 nicht aufgenommen.
 
-## Master-Fortschrittsliste
+## Historische Fortschrittsliste – Stand vor Merge von 0.4.0
 
 | Phase | Status | Stand |
 |---|---|---|
@@ -14,6 +14,8 @@ nicht aufgenommen.
 | 3 Testgetriebene Umsetzung | PASS | Isolierte Regressionen: 40 Lifecycle-, 30 Portabilitäts-, 8 Netzwerk- und 5 PTY-Prüfgruppen |
 | 4 Reale Abnahme | BLOCKED | Aktueller 0.4.0-Stand ohne Zugriff auf macOS/UTM nicht real geprüft |
 | 5 Veröffentlichung | BLOCKED | Feature-Branch und Draft-PR #5 veröffentlicht; kein Merge ohne aktuelle reale Pflichtabnahme |
+
+Der aktuelle 0.4.1-Stand steht im letzten Eintrag dieses Protokolls. Die obige Tabelle bleibt als historischer Nachweis erhalten.
 
 Die Schritte 1–11 beschreiben den historischen 0.3.0-Stand. Dessen PASS-Werte
 gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
