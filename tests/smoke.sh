@@ -83,7 +83,9 @@ rcu() { "$root/bin/rcu" "$@"; }
 # ====================================================================
 # 1. Help output
 # ====================================================================
-if rcu help 2>&1 | grep -q 'utm'; then
+_help_out=$(rcu help 2>&1)
+_help_rc=$?
+if echo "$_help_out" | grep -q 'utm'; then
   pass_test "help shows utm commands"
 else
   fail_test "help shows utm commands"
