@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deactivate only managed RCU artifacts. Archive rather than delete releases.
 set -euo pipefail
-source "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
+source "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
 rcu_check_platform
 [[ $# -eq 0 ]] || rcu_die 'No purge flags accepted. Configuration/backups are always preserved.'
 rcu_check_launcher

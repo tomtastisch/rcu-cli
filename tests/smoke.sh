@@ -1,13 +1,13 @@
 #!/bin/bash
 # End-to-end lifecycle tests with fully isolated HOME and mocked external services.
 set -euo pipefail
-src="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+src="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 case_dir="$(mktemp -d)"
 trap 'rm -rf "$case_dir"' EXIT
 export HOME="$case_dir/home" XDG_CONFIG_HOME="$case_dir/home/.config" RCU_TEST=1
 mkdir -p "$HOME/.ssh" "$case_dir/mock" "$case_dir/vm"
-printf 'fake-identity\n' > "$HOME/.ssh/thi-clion-ed25519"
-chmod 600 "$HOME/.ssh/thi-clion-ed25519"
+printf 'fake-identity\n' > "$HOME/.ssh/optional-test-key"
+chmod 600 "$HOME/.ssh/optional-test-key"
 printf 'started\n' > "$case_dir/vm/state"
 export TEST_VM_STATE="$case_dir/vm/state" TEST_VM_LOG="$case_dir/vm/log" TEST_VM_FAIL=0 TEST_SSH_FAIL=0
 : > "$TEST_VM_LOG"
@@ -15,7 +15,7 @@ cat > "$case_dir/mock/utmctl" <<'MOCK'
 #!/bin/bash
 printf '%s\n' "$*" >> "$TEST_VM_LOG"
 case "$1" in
-  list) printf 'UUID Status Name\nA16B662F-A8E9-4615-B0E9-A16BA73BA7E7 %s Virtuelle Maschine\n' "$(cat "$TEST_VM_STATE")" ;;
+  list) printf 'UUID Status Name\n23456789-1234-4567-8910-123456789ABC %s Sample VM\n' "$(cat "$TEST_VM_STATE")" ;;
   start) printf 'started\n' > "$TEST_VM_STATE" ;;
   stop)
     [[ "$2" == --request ]] || exit 19
@@ -28,7 +28,7 @@ cat > "$case_dir/mock/ssh" <<'MOCK'
 #!/bin/bash
 [[ "${TEST_SSH_FAIL:-0}" == 0 ]] || exit 255
 for word in "$@"; do
-  if [[ "$word" == 'id -un' ]]; then printf 'lars\n'; break; fi
+  if [[ "$word" == 'id -un' ]]; then printf 'guesttest\n'; break; fi
 done
 exit 0
 MOCK
@@ -64,21 +64,33 @@ case "${1:-}" in
     ;;
 esac
 MOCK
+cat > "$case_dir/mock/nc" <<'MOCK'
+#!/bin/bash
+exit 0
+MOCK
+cat > "$case_dir/mock/ssh-keygen" <<'MOCK'
+#!/bin/bash
+exit 0
+MOCK
 chmod +x "$case_dir/mock/"*
 export PATH="$case_dir/mock:/usr/bin:/bin"
 export RCU_UTMCTL_PATH="$case_dir/mock/utmctl"
 export RCU_CONFIG="$HOME/.config/rcu/config"
 mkdir -p "$(dirname "$RCU_CONFIG")"
 cat > "$RCU_CONFIG" <<EOF2
-VM_UUID='A16B662F-A8E9-4615-B0E9-A16BA73BA7E7'
-VM_NAME='Virtuelle Maschine'
+CONFIG_VERSION=1
+ADDRESS_MODE=manual
+AUTH_MODE=agent
+VM_UUID='23456789-1234-4567-8910-123456789ABC'
+VM_NAME='Sample VM'
 UTMCTL='$case_dir/mock/utmctl'
-SSH_KEY='$HOME/.ssh/thi-clion-ed25519'
-SSH_HOST='192.168.64.2'
-SSH_USER='lars'
+SSH_KEY='$HOME/.ssh/optional-test-key'
+SSH_HOST='10.19.23.41'
+SSH_USER='guesttest'
 WAIT_SECONDS=2
 EOF2
 chmod 600 "$RCU_CONFIG"
+printf 'test-pinned-key\n' > "$(dirname "$RCU_CONFIG")/known_hosts"
 PASS=0
 FAIL=0
 pass() { PASS=$((PASS+1)); printf 'PASS %s\n' "$1"; }
@@ -94,7 +106,7 @@ expect 'installed launcher can load modules and show help' "$HOME/.local/bin/rcu
 expect 'install adds managed zsh PATH once' grep -Fxq '# rcu-cli: managed PATH' "$HOME/.zshrc"
 expect 'first install is idempotent' /bin/bash "$src/install.sh"
 expect 'no duplicate zsh marker' test "$(grep -Fc '# rcu-cli: managed PATH' "$HOME/.zshrc")" -eq 1
-expect 'initial version selected' test "$(current_version)" = 0.3.1
+expect 'initial version selected' test "$(current_version)" = 0.4.0
 expect 'health with mocked guest' "$HOME/.local/bin/rcu" utm health
 expect 'connect with mocked guest' "$HOME/.local/bin/rcu" utm connect
 connect_output="$("$HOME/.local/bin/rcu" utm connect 2>&1)"
@@ -138,27 +150,27 @@ export TEST_SSH_FAIL=0
 # Reject untrusted configuration strings; no `source` or eval used.
 cp "$RCU_CONFIG" "$case_dir/good-config"
 cat > "$RCU_CONFIG" <<'MAL'
-VM_NAME='Virtuelle Maschine'; false
+VM_NAME='Sample VM'; false
 MAL
 chmod 600 "$RCU_CONFIG"
-if "$HOME/.local/bin/rcu" help >/dev/null 2>&1; then fail 'malicious configuration rejected'; else pass 'malicious configuration rejected'; fi
+if "$HOME/.local/bin/rcu" utm health >/dev/null 2>&1; then fail 'malicious configuration rejected'; else pass 'malicious configuration rejected'; fi
 cp "$case_dir/good-config" "$RCU_CONFIG"
 
 # Prepare another tested release and switch by the installed update command.
 cp -R "$src" "$case_dir/version2"
-printf '0.3.2\n' > "$case_dir/version2/VERSION"
+printf '0.4.1\n' > "$case_dir/version2/VERSION"
 expect 'update command installs new release' "$HOME/.local/bin/rcu" update "$case_dir/version2"
-expect 'new version selected' test "$(current_version)" = 0.3.2
-expect 'previous release retained' test "$(previous_version)" = 0.3.1
-expect 'rollback works on Bash 3.2 syntax' "$HOME/.local/bin/rcu" rollback
-expect 'rollback selects earlier release' test "$(current_version)" = 0.3.1
+expect 'new version selected' test "$(current_version)" = 0.4.1
+expect 'previous release retained' test "$(previous_version)" = 0.4.0
+expect 'rollback switches version (current test shell)' "$HOME/.local/bin/rcu" rollback
+expect 'rollback selects earlier release' test "$(current_version)" = 0.4.0
 
 # Failed update must leave the active release unchanged.
 cp -R "$src" "$case_dir/bad-bundle"
-printf '0.3.3\n' > "$case_dir/bad-bundle/VERSION"
+printf '0.4.2\n' > "$case_dir/bad-bundle/VERSION"
 printf 'syntax(\n' >> "$case_dir/bad-bundle/lib/backends/utm.sh"
 if "$HOME/.local/bin/rcu" update "$case_dir/bad-bundle" >/dev/null 2>&1; then fail 'corrupt update rejected'; else pass 'corrupt update rejected'; fi
-expect 'current release unchanged after failed update' test "$(current_version)" = 0.3.1
+expect 'current release unchanged after failed update' test "$(current_version)" = 0.4.0
 
 # Foreign launcher collisions must not overwrite the foreign file.
 expect 'uninstall through installed CLI' "$HOME/.local/bin/rcu" uninstall

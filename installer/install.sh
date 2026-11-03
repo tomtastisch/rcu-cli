@@ -3,19 +3,27 @@
 set -euo pipefail
 src="${1:?Source directory required}"
 # shellcheck source=installer/common.sh
-source "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
+source "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
 rcu_check_platform
 rcu_check_base
 rcu_check_launcher
 [[ -f "$src/VERSION" ]] || rcu_die 'VERSION is missing.'
 version="$(cat "$src/VERSION")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || rcu_die 'Invalid semantic version.'
-required=(bin/rcu lib/core.sh lib/backends/utm.sh install.sh VERSION installer/common.sh installer/install.sh installer/uninstall.sh installer/rollback.sh config/config.example)
+required=(bin/rcu lib/core.sh lib/setup.sh lib/network.sh lib/ssh-askpass lib/backends/utm.sh install.sh VERSION installer/common.sh installer/install.sh installer/uninstall.sh installer/rollback.sh config/config.example)
 for file in "${required[@]}"; do
   [[ -f "$src/$file" && ! -L "$src/$file" ]] || rcu_die "Missing or symlinked source file: $file"
-  case "$file" in *.sh|bin/rcu) /bin/bash -n "$src/$file" || rcu_die "Invalid shell syntax: $file" ;; esac
+  case "$file" in *.sh|bin/rcu|lib/ssh-askpass) /bin/bash -n "$src/$file" || rcu_die "Invalid shell syntax: $file" ;; esac
 done
-utmctl="${RCU_UTMCTL_PATH:-/Applications/UTM.app/Contents/MacOS/utmctl}"
+utmctl="${RCU_UTMCTL_PATH:-}"
+if [[ -z "$utmctl" ]]; then
+  utmctl="$(command -v utmctl || true)"
+  if [[ -z "$utmctl" ]]; then
+    for utmctl in /Applications/UTM.app/Contents/MacOS/utmctl "$HOME/Applications/UTM.app/Contents/MacOS/utmctl"; do
+      [[ ! -x "$utmctl" ]] || break
+    done
+  fi
+fi
 [[ -x "$utmctl" ]] || rcu_die 'UTM/utmctl is not installed or not executable.'
 rcu_info 'UTM found.'
 if ! command -v brew >/dev/null 2>&1; then
@@ -46,6 +54,7 @@ stage="$(mktemp -d "$RCU_RELEASES/.rcu-stage.XXXXXX")"
 trap '[[ -z "${stage:-}" ]] || rm -rf "$stage"' EXIT
 cp -R "$src/bin" "$src/lib" "$src/installer" "$src/config" "$stage/"
 cp "$src/install.sh" "$src/VERSION" "$stage/"
+chmod +x "$stage/bin/rcu" "$stage/lib/ssh-askpass"
 printf 'rcu-cli release %s\n' "$version" > "$stage/.rcu-managed"
 # Verify staged bundle; fail if reusing a version with different content.
 for file in "${required[@]}"; do
@@ -97,5 +106,5 @@ if ! "$RCU_LAUNCHER" help >/dev/null; then
   rcu_die 'Runtime verification failed. Active release restored when available.'
 fi
 rcu_info "RCU $version installed; runtime help verified."
-rcu_info 'Commands: rcu utm {start|connect|shell|stop|health|status}; rcu update <source>; rcu rollback; rcu uninstall.'
+rcu_info 'Commands: rcu; rcu setup; rcu upload; rcu utm {start|connect|shell|stop|health|status}; rcu update <source>; rcu rollback; rcu uninstall.'
 rcu_info 'If rcu is not visible in this shell, open a new macOS terminal or source ~/.zshrc yourself.'
