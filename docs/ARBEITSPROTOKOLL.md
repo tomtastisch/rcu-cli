@@ -278,3 +278,13 @@ gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
 - Statusmatrix: PASS für Feature-Veröffentlichung, überprüften Tree, 40 Lifecycle-/30 Portabilitätstests, 8 Netzwerk-/5 PTY-Gruppen unter beiden Plattformen, Linux-Lint und unabhängigen Runtime-Review. BLOCKED für reale UTM-/Keychain-/SFTP-Abnahme und produktive Installation mangels Zugriff. SKIP für Merge/Release nach main, da reale Pflichtgates fehlen.
 - Remote-Gate: PR weiterhin OPEN/DRAFT, nicht gemerged; base main unverändert `158bf949b44da9fb5d08a6808018582ec0becef2`. Keine produktive Version auf dem Benutzer-Mac installiert. Veröffentlichung ist ein prüfbarer Feature-Branch, kein fertig abgenommener main-Release.
 - Protokoll-Gate / Nächster Schritt: Dieser reine Dokumentationsnachtrag hält den erfolgreich geprüften Code-/Teststand unverändert. Nach Veröffentlichung dieses Nachtrags dessen CI erneut beobachten. Anschließend reale Pflichtabnahmen durchführen und protokollieren; kein automatischer Merge.
+
+### Schritt 23 – Expliziter Merge-Auftrag bei weiterhin offener Live-Abnahme
+
+- Zeitpunkt: 2026-11-03T19:01:58+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: Merge-Freigabe / GitHub und Linux-Workspace; kein persönlicher macOS-Host oder Gast.
+- Entscheidung: Nach ausdrücklichem Hinweis, dass PR #5 ein Entwurf ist und reale UTM-/Keychain-/SFTP-Abnahme noch fehlt, weist der Benutzer ausdrücklich „mergen!“ an. Diese neuere Anweisung autorisiert den regulären Merge trotz der dokumentierten offenen Live-Abnahme. Kein Live-Gate wird dadurch als bestanden umgedeutet; die produktive Installation bleibt ungeprüft.
+- Aktueller Nachweis: Remote-HEAD vor diesem reinen Protokollnachtrag `e1bdf6988a0d51f7ed9ddb511a7274021c0e555b`. PR-Run 41688897120 abgeschlossen SUCCESS; Linux- und macOS-Jobs SUCCESS. GitHub meldet mergeable=true; keine Review-Submissions und keine Review-Threads. main vor Merge `158bf949b44da9fb5d08a6808018582ec0becef2`.
+- Vorgehen: Protokollnachtrag auf dem Feature-Branch veröffentlichen, aktuelle CI prüfen, Draft-Status regulär aufheben und Merge mit erwartetem HEAD ausführen. Kein Force-Push, kein Admin-Bypass und kein Abschalten von Branchschutz. GitHub-Connector dient als authentifizierter Transport, da lokale Git-/GitHub-CLI-Credentials fehlen.
+- Status: PASS für explizite Merge-Freigabe und CI des geprüften Code-/Teststands. Live-Abnahme weiterhin BLOCKED; aktueller Nachtrags-CI-Lauf und tatsächlicher Merge noch offen.
+- Nächster Schritt: Tatsächlichen Merge-Commit und main per Remote-Readback prüfen; Ergebnis nicht allein aus mergeable oder Merge-Anforderung ableiten.
