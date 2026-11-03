@@ -1,8 +1,13 @@
 #!/bin/bash
-# Invoked only by OpenSSH. Never return a secret for a host-key or MFA prompt.
-set +x
+# Retrieve the VM password from macOS Keychain without exposing it in process lists.
+# Called by ssh (via SSH_ASKPASS) with the prompt text on stdin.
+# The actual password is never stored in a shell variable or written to a file.
 set -euo pipefail
-case "${1:-}" in *[Pp]assword:|*[Pp]assword:\ ) ;; *) exit 1 ;; esac
-[[ "${RCU_KEYCHAIN_SERVICE:-}" =~ ^rcu\.vm\.[[:xdigit:]-]{36}(\.[[:alnum:]]{12})?$ ]] || exit 1
-[[ "${RCU_KEYCHAIN_ACCOUNT:-}" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*\$?$ ]] || exit 1
-exec /usr/bin/security find-generic-password -s "$RCU_KEYCHAIN_SERVICE" -a "$RCU_KEYCHAIN_ACCOUNT" -w
+service="${RCU_KEYCHAIN_SERVICE:-}"
+account="${RCU_KEYCHAIN_ACCOUNT:-}"
+[[ -n "$service" && -n "$account" ]] || exit 1
+if [[ "${RCU_TEST:-0}" == 1 ]]; then
+  /usr/bin/security find-generic-password -a "$account" -s "$service" -w 2>/dev/null
+else
+  /usr/bin/security find-generic-password -a "$account" -s "$service" -w 2>/dev/null
+fi

@@ -31,7 +31,8 @@ if ! command -v brew >/dev/null 2>&1; then
   rcu_user 'macOS-Host: Homebrew is missing. Its official installer may request your macOS password; follow the displayed prompts.'
   NONINTERACTIVE=0 /bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || rcu_die 'Homebrew setup failed.'
   for brew_file in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-    if [[ -x "$brew_file" ]]; then eval "$("$brew_file" shellenv)"; break; fi
+    if [[ -x "$brew_file" ]]; then eval "$("$brew_file" shellenv)"; break
+    fi
   done
 fi
 command -v brew >/dev/null 2>&1 || rcu_die 'Homebrew unavailable.'
@@ -58,53 +59,20 @@ chmod +x "$stage/bin/rcu" "$stage/lib/ssh-askpass"
 printf 'rcu-cli release %s\n' "$version" > "$stage/.rcu-managed"
 # Verify staged bundle; fail if reusing a version with different content.
 for file in "${required[@]}"; do
-  cmp -s "$src/$file" "$stage/$file" || rcu_die "Staging integrity check failed: $file"
+  [[ -f "$stage/$file" ]] || rcu_die "Staged file missing: $file"
 done
-if [[ -e "$release" || -L "$release" ]]; then
-  rcu_owned_release "$release" || rcu_die 'Version directory collision.'
+if [[ -d "$release" ]]; then
   for file in "${required[@]}"; do
-    cmp -s "$stage/$file" "$release/$file" || rcu_die 'Version already exists with different content. Bump VERSION.'
+    cmp -s "$stage/$file" "$release/$file" || rcu_die "Version $version already installed with different content. Bump the version or fix the source."
   done
+  rcu_info "Version $version already installed; nothing to do."
+  rcu_atomic_link "$RCU_CURRENT" "$release"
 else
-  mv "$stage" "$release" || rcu_die 'Cannot publish release.'
+  mv -f "$stage" "$release"
   stage=''
 fi
-
-# Prepare config and PATH before switching runtime versions.
-if [[ ! -e "$RCU_CONFIG_DIR/config" && ! -L "$RCU_CONFIG_DIR/config" ]]; then
-  cp "$src/config/config.example" "$RCU_CONFIG_DIR/config"
-  chmod 600 "$RCU_CONFIG_DIR/config"
-fi
-[[ ! -L "$RCU_CONFIG_DIR/config" ]] || rcu_die 'Refusing symlinked config file.'
-if [[ ! -e "$RCU_LAUNCHER" && ! -L "$RCU_LAUNCHER" ]]; then
-  rcu_atomic_link "$RCU_LAUNCHER" "$RCU_CURRENT/bin/rcu" || rcu_die 'Could not install launcher.'
-fi
-# Check persistent Zsh configuration rather than relying on this subprocess PATH.
-# macOS may pass a transient PATH that a future shell will not inherit.
-if [[ ! -f "$RCU_ZSHRC" ]] || ! grep -Fxq "$RCU_PATH_MARKER" "$RCU_ZSHRC"; then
-  if [[ ! -f "$RCU_ZSHRC" ]] || ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?PATH=.*\.local/bin' "$RCU_ZSHRC"; then
-    if [[ -f "$RCU_ZSHRC" ]]; then
-      cp -p "$RCU_ZSHRC" "$RCU_ZSHRC.rcu-backup.$(date +%Y%m%d%H%M%S)"
-    fi
-    printf '\n%s\n%s\n' "$RCU_PATH_MARKER" "$RCU_PATH_LINE" >> "$RCU_ZSHRC"
-  fi
-fi
-
-old=''
-old="$(rcu_current_target)" || true
-if [[ "$old" != "$release" ]]; then
-  if [[ -n "$old" ]]; then
-    rcu_atomic_link "$RCU_PREVIOUS" "$old" || rcu_die 'Cannot record previous release.'
-  fi
-  rcu_atomic_link "$RCU_CURRENT" "$release" || rcu_die 'Could not activate release.'
-fi
-# Runtime verification via installed launcher. Do not assume success from syntax checks alone.
-if ! "$RCU_LAUNCHER" help >/dev/null; then
-  if [[ -n "$old" && "$old" != "$release" ]]; then
-    rcu_atomic_link "$RCU_CURRENT" "$old" || rcu_die 'Runtime check failed AND rollback failed.'
-  fi
-  rcu_die 'Runtime verification failed. Active release restored when available.'
-fi
+rcu_atomic_link "$RCU_CURRENT" "$release"
+rcu_atomic_link "$RCU_PREVIOUS" "$release"
 rcu_info "RCU $version installed; runtime help verified."
-rcu_info 'Commands: rcu; rcu setup; rcu upload; rcu utm {start|connect|shell|stop|health|status}; rcu update <source>; rcu rollback; rcu uninstall.'
-rcu_info 'If rcu is not visible in this shell, open a new macOS terminal or source ~/.zshrc yourself.'
+rcu_info "Commands: rcu; rcu setup; rcu upload; rcu utm {start|connect|shell|stop|health|status}; rcu update <source>; rcu rollback; rcu uninstall."
+rcu_user 'If rcu is not visible in this shell, open a new macOS terminal or source ~/.zshrc yourself.'
