@@ -1,179 +1,101 @@
 #!/bin/bash
-# installer/install.sh — Install RCU bundle to ~/.local/share/utm/rcu/
-# Idempotent, atomic, preserves previous versions.
-# Usage: ./install.sh
-
+# Install immutable releases, then switch the active pointer atomically.
 set -euo pipefail
-
-RCU_VERSION="${RCU_VERSION:-0.1.0}"
-RCU_BUNDLE_DIR="$HOME/.local/share/utm/rcu"
-RCU_RELEASES_DIR="$RCU_BUNDLE_DIR/releases"
-RCU_CURRENT_LINK="$RCU_BUNDLE_DIR/current"
-RCU_LAUNCHER="$HOME/.local/bin/rcu"
-RCU_CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/rcu"
-RCU_ZSHRC="$HOME/.zshrc"
-RCU_PATH_MARKER='# rcu-cli: managed PATH'
-
-msg() {
-    if [[ -t 1 ]] && command -v gum >/dev/null 2>&1; then
-        gum style --foreground 39 "$*"
-    else
-        printf '%s\n' "$*"
-    fi
-}
-
-fail() {
-    printf 'ERROR: %s\n' "$*" >&2
-    exit 1
-}
-
-# Resolve the source directory (where install.sh lives)
-# shellcheck disable=SC1007
-SRC_ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-
-# --- Pre-flight checks ---
-msg '=== RCU Installer v%s ===' "$RCU_VERSION"
-
-# 1. Check macOS
-[[ "$(uname -s)" == Darwin ]] || fail 'RCU requires macOS (Apple Silicon). Run on macOS host.'
-
-# 2. Check UTM
-[[ -d /Applications/UTM.app && -x /Applications/UTM.app/Contents/MacOS/utmctl ]] \
-    || fail 'UTM not found at /Applications/UTM.app. Install UTM first.'
-msg '✓ UTM found'
-
-# 3. Check Homebrew
+src="${1:?Source directory required}"
+# shellcheck source=installer/common.sh
+source "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
+rcu_check_platform
+rcu_check_base
+rcu_check_launcher
+[[ -f "$src/VERSION" ]] || rcu_die 'VERSION is missing.'
+version="$(cat "$src/VERSION")"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || rcu_die 'Invalid semantic version.'
+required=(bin/rcu lib/core.sh lib/backends/utm.sh install.sh VERSION installer/common.sh installer/install.sh installer/uninstall.sh installer/rollback.sh config/config.example)
+for file in "${required[@]}"; do
+  [[ -f "$src/$file" && ! -L "$src/$file" ]] || rcu_die "Missing or symlinked source file: $file"
+  case "$file" in *.sh|bin/rcu) /bin/bash -n "$src/$file" || rcu_die "Invalid shell syntax: $file" ;; esac
+done
+utmctl="${RCU_UTMCTL_PATH:-/Applications/UTM.app/Contents/MacOS/utmctl}"
+[[ -x "$utmctl" ]] || rcu_die 'UTM/utmctl is not installed or not executable.'
+rcu_info 'UTM found.'
 if ! command -v brew >/dev/null 2>&1; then
-    msg 'USER: macOS-Host — Homebrew is missing. The official installer may ask for your password.'
-    NONINTERACTIVE=0 /bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
-        || fail 'Homebrew installation failed'
-    # Load brew env
-    for brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-        if [[ -x "$brew_path" ]]; then
-            eval "$("$brew_path" shellenv)" 2>/dev/null || true
-            break
-        fi
-    done
+  [[ "${RCU_TEST:-0}" != 1 ]] || rcu_die 'Homebrew missing in isolated test; refusing network installation.'
+  rcu_user 'macOS-Host: Homebrew is missing. Its official installer may request your macOS password; follow the displayed prompts.'
+  NONINTERACTIVE=0 /bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || rcu_die 'Homebrew setup failed.'
+  for brew_file in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [[ -x "$brew_file" ]]; then eval "$("$brew_file" shellenv)"; break; fi
+  done
 fi
-command -v brew >/dev/null 2>&1 || fail 'Homebrew unavailable after installation attempt'
-msg '✓ Homebrew found'
-
-# 4. Check gum
+command -v brew >/dev/null 2>&1 || rcu_die 'Homebrew unavailable.'
+rcu_info 'Homebrew found.'
 if ! command -v gum >/dev/null 2>&1; then
-    msg 'Installing gum via Homebrew...'
-    brew install gum || fail 'gum installation failed'
+  [[ "${RCU_TEST:-0}" != 1 ]] || rcu_die 'gum missing in isolated test; refusing host package installation.'
+  rcu_user 'macOS-Host: Installing missing gum via Homebrew; no global sudo invocation.'
+  brew install gum || rcu_die 'gum setup failed.'
 fi
-msg '✓ gum found'
+command -v gum >/dev/null 2>&1 || rcu_die 'gum unavailable.'
+rcu_info 'gum found.'
+[[ ! -L "$RCU_ZSHRC" ]] || rcu_die 'Refusing to change symlinked .zshrc.'
+[[ ! -L "$RCU_CONFIG_DIR" ]] || rcu_die 'Refusing symlinked config directory.'
 
-# 5. Check SSH
-[[ -x /usr/bin/ssh ]] || fail 'SSH not found'
-msg '✓ SSH found'
-
-# --- Validate bundle integrity ---
-msg 'Validating bundle...'
-for f in bin/rcu core/config.sh core/utm.sh core/ssh.sh core/progress.sh \
-         commands/start.sh commands/connect.sh commands/shell.sh \
-         commands/stop.sh commands/health.sh commands/status.sh; do
-    [[ -f "$SRC_ROOT/$f" ]] || fail "Missing bundle file: $f"
+mkdir -p "$RCU_RELEASES" "$HOME/.local/bin" "$RCU_CONFIG_DIR"
+[[ ! -L "$RCU_RELEASES" ]] || rcu_die 'Releases directory must not be a symlink.'
+printf 'rcu-cli\n' > "$RCU_BASE/.rcu-managed"
+release="$RCU_RELEASES/$version"
+stage="$(mktemp -d "$RCU_RELEASES/.rcu-stage.XXXXXX")"
+trap '[[ -z "${stage:-}" ]] || rm -rf "$stage"' EXIT
+cp -R "$src/bin" "$src/lib" "$src/installer" "$src/config" "$stage/"
+cp "$src/install.sh" "$src/VERSION" "$stage/"
+printf 'rcu-cli release %s\n' "$version" > "$stage/.rcu-managed"
+# Verify staged bundle; fail if reusing a version with different content.
+for file in "${required[@]}"; do
+  cmp -s "$src/$file" "$stage/$file" || rcu_die "Staging integrity check failed: $file"
 done
-
-# Syntax check all shell files
-for f in "$SRC_ROOT"/bin/rcu "$SRC_ROOT"/core/*.sh "$SRC_ROOT"/commands/*.sh; do
-    /bin/bash -n "$f" 2>/dev/null || { fail "Syntax error in $f"; }
-done
-msg '✓ Bundle syntax valid'
-
-# --- Stage installation ---
-mkdir -p "$HOME/.local/share"
-STAGING=$(mktemp -d "$HOME/.local/share/.rcu-stage.XXXXXX")
-trap 'rm -rf "$STAGING"' EXIT
-
-# Copy bundle to staging
-cp -R "$SRC_ROOT/bin" "$SRC_ROOT/core" "$SRC_ROOT/commands" "$SRC_ROOT/config" "$STAGING/"
-
-# Create install manifest
-cat > "$STAGING/install-manifest" <<MANIFEST
-# RCU Install Manifest — do not edit
-version=$RCU_VERSION
-installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-files=bin/rcu
-files=core/config.sh
-files=core/utm.sh
-files=core/ssh.sh
-files=core/progress.sh
-files=commands/start.sh
-files=commands/connect.sh
-files=commands/shell.sh
-files=commands/stop.sh
-files=commands/health.sh
-files=commands/status.sh
-MANIFEST
-
-# --- Atomic activation ---
-mkdir -p "$RCU_RELEASES_DIR" "$HOME/.local/bin" "$RCU_CONF_DIR"
-
-# Place in versioned directory
-VERSION_DIR="$RCU_RELEASES_DIR/$RCU_VERSION"
-if [[ -d "$VERSION_DIR" ]]; then
-    # Already installed — idempotent, skip copy
-    msg 'Version %s already installed, skipping copy.' "$RCU_VERSION"
+if [[ -e "$release" || -L "$release" ]]; then
+  rcu_owned_release "$release" || rcu_die 'Version directory collision.'
+  for file in "${required[@]}"; do
+    cmp -s "$stage/$file" "$release/$file" || rcu_die 'Version already exists with different content. Bump VERSION.'
+  done
 else
-    mv "$STAGING" "$VERSION_DIR"
-fi
-trap - EXIT
-
-# Update current symlink atomically
-if [[ -L "$RCU_CURRENT_LINK" ]]; then
-    rm "$RCU_CURRENT_LINK"
-fi
-ln -s "$VERSION_DIR" "$RCU_CURRENT_LINK"
-
-# --- Install launcher ---
-# The launcher resolves the bundle via the current symlink
-cat > "$RCU_LAUNCHER" <<'LAUNCHER'
-#!/bin/bash
-# RCU Launcher — resolves bundle via ~/.local/share/utm/rcu/current
-set -euo pipefail
-RCU_BUNDLE="$HOME/.local/share/utm/rcu/current"
-if [[ ! -d "$RCU_BUNDLE" ]]; then
-    printf 'ERROR: RCU bundle not found at %s\n' "$RCU_BUNDLE" >&2
-    exit 1
-fi
-export RCU_BUNDLE_ROOT="$RCU_BUNDLE"
-exec "$RCU_BUNDLE/bin/rcu" "$@"
-LAUNCHER
-chmod +x "$RCU_LAUNCHER"
-
-# --- Config ---
-if [[ ! -f "$RCU_CONF_DIR/config" ]]; then
-    cp "$SRC_ROOT/config/config.example" "$RCU_CONF_DIR/config"
-    chmod 600 "$RCU_CONF_DIR/config"
-    msg 'Configuration created at ~/.config/rcu/config'
+  mv "$stage" "$release" || rcu_die 'Cannot publish release.'
+  stage=''
 fi
 
-# --- PATH in ~/.zshrc ---
-# Only add if ~/.local/bin is not already covered
-if [[ ! -f "$RCU_ZSHRC" ]] || ! grep -qF "$RCU_PATH_MARKER" "$RCU_ZSHRC" 2>/dev/null; then
-    # shellcheck disable=SC2016
-    printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n' "$RCU_PATH_MARKER" >> "$RCU_ZSHRC"
-    msg 'Added managed PATH entry to ~/.zshrc'
-else
-    msg 'PATH entry already present in ~/.zshrc'
+# Prepare config and PATH before switching runtime versions.
+if [[ ! -e "$RCU_CONFIG_DIR/config" && ! -L "$RCU_CONFIG_DIR/config" ]]; then
+  cp "$src/config/config.example" "$RCU_CONFIG_DIR/config"
+  chmod 600 "$RCU_CONFIG_DIR/config"
+fi
+[[ ! -L "$RCU_CONFIG_DIR/config" ]] || rcu_die 'Refusing symlinked config file.'
+if [[ ! -e "$RCU_LAUNCHER" && ! -L "$RCU_LAUNCHER" ]]; then
+  rcu_atomic_link "$RCU_LAUNCHER" "$RCU_CURRENT/bin/rcu" || rcu_die 'Could not install launcher.'
+fi
+# Check persistent Zsh configuration rather than relying on this subprocess PATH.
+# macOS may pass a transient PATH that a future shell will not inherit.
+if [[ ! -f "$RCU_ZSHRC" ]] || ! grep -Fxq "$RCU_PATH_MARKER" "$RCU_ZSHRC"; then
+  if [[ ! -f "$RCU_ZSHRC" ]] || ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?PATH=.*\.local/bin' "$RCU_ZSHRC"; then
+    if [[ -f "$RCU_ZSHRC" ]]; then
+      cp -p "$RCU_ZSHRC" "$RCU_ZSHRC.rcu-backup.$(date +%Y%m%d%H%M%S)"
+    fi
+    printf '\n%s\n%s\n' "$RCU_PATH_MARKER" "$RCU_PATH_LINE" >> "$RCU_ZSHRC"
+  fi
 fi
 
-# --- Final summary ---
-msg ''
-msg '=== RCU v%s installed successfully ===' "$RCU_VERSION"
-msg ''
-msg 'Bundle:   ~/.local/share/utm/rcu/releases/%s' "$RCU_VERSION"
-msg 'Symlink:  ~/.local/share/utm/rcu/current -> releases/%s' "$RCU_VERSION"
-msg 'Launcher: ~/.local/bin/rcu'
-msg 'Config:   ~/.config/rcu/config'
-msg ''
-msg 'In a new terminal: rcu help'
-msg 'In this terminal:  source ~/.zshrc && rcu help'
-msg ''
-msg 'Commands:'
-msg '  rcu utm start    rcu utm connect    rcu utm shell'
-msg '  rcu utm stop     rcu utm health     rcu utm status'
-msg '  rcu help         rcu doctor         rcu uninstall'
+old=''
+old="$(rcu_current_target)" || true
+if [[ "$old" != "$release" ]]; then
+  if [[ -n "$old" ]]; then
+    rcu_atomic_link "$RCU_PREVIOUS" "$old" || rcu_die 'Cannot record previous release.'
+  fi
+  rcu_atomic_link "$RCU_CURRENT" "$release" || rcu_die 'Could not activate release.'
+fi
+# Runtime verification via installed launcher. Do not assume success from syntax checks alone.
+if ! "$RCU_LAUNCHER" help >/dev/null; then
+  if [[ -n "$old" && "$old" != "$release" ]]; then
+    rcu_atomic_link "$RCU_CURRENT" "$old" || rcu_die 'Runtime check failed AND rollback failed.'
+  fi
+  rcu_die 'Runtime verification failed. Active release restored when available.'
+fi
+rcu_info "RCU $version installed; runtime help verified."
+rcu_info 'Commands: rcu utm {start|connect|shell|stop|health|status}; rcu update <source>; rcu rollback; rcu uninstall.'
+rcu_info 'If rcu is not visible in this shell, open a new macOS terminal or source ~/.zshrc yourself.'

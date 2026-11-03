@@ -1,57 +1,65 @@
-# rcu — Remote Control Unit
+# RCU – Remote Control Unit
 
-Portable, modular macOS command interface for existing UTM installations. Does not modify the Debian guest or install additional SSH keys.
+Version 0.2.0 · modulares Kommandozeilenprogramm für die Steuerung einer vorhandenen UTM-VM unter macOS.
 
-## Installation (macOS host)
+RCU läuft auf dem macOS-Host, nicht innerhalb der Debian-VM. Es nutzt UTM (`utmctl`) und OpenSSH, installiert keine VM und kopiert keine privaten SSH-Schlüssel. `rcu utm stop` fordert ausschließlich einen regulären Shutdown (`utmctl stop --request`) an.
 
-Unpack this repository; inspect `install.sh`; run `./install.sh` from its root. Requires UTM already installed. Homebrew is installed via its official interactive installer only if missing; `gum` is installed only if absent. No password is requested unless the installation of a dependency genuinely requires it. `~/.zshrc` receives a single managed PATH line. The only shell command added is `rcu`.
+## Direkt von GitHub laden und installieren (macOS-Host)
 
-Installation is atomic: a staging directory is prepared, validated, and then activated via a filesystem rename. If activation fails, the previous version is automatically restored. Foreign files at the install path are never overwritten.
+Voraussetzungen: macOS mit installierter UTM-App, GitHub CLI `gh` (bereits authentifiziert und mit Zugriff auf das **private** Repository `tomtastisch/rcu-cli`), eine vorhandene UTM-VM sowie konfigurierte SSH-Authentifizierung und verifizierter SSH-Host-Key. Die Installation prüft Homebrew und `gum`; fehlende Abhängigkeiten können eine interaktive, gegebenenfalls privilegierte Installation erfordern.
 
-A new terminal session should expose `rcu help`.
+Im normalen **macOS-Terminal** exakt diesen Befehl ausführen (nicht innerhalb der Debian-VM):
 
-## Commands (macOS host)
+```sh
+rcu_src="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/rcu-from-git.XXXXXX")" && gh repo clone tomtastisch/rcu-cli "$rcu_src/rcu-cli" && /bin/bash "$rcu_src/rcu-cli/install.sh" && "$HOME/.local/bin/rcu" help
+```
 
-### VM commands
+Der Befehl klont den aktuellen Standardbranch `main` in einen neuen temporären Quellordner und startet den überprüfbaren Installer aus dem lokalen Clone. Er führt **kein** Skript unmittelbar aus einer Netzwerkantwort aus. Anschließend wird der installierte CLI-Einstiegspunkt direkt geprüft. Der temporäre Quellordner wird nicht automatisch gelöscht. Auf dem Ziel-Mac werden ausschließlich die ausdrücklich für RCU vorgesehenen Installationspfade angelegt oder angepasst.
 
-- `rcu utm start`: request a VM start if stopped, check SSH authentication and state.
-- `rcu utm connect`: verify SSH connectivity without opening a shell.
-- `rcu utm shell`: open an interactive Debian SSH session. Type `exit` to return to macOS.
-- `rcu utm stop`: request graceful shutdown; never force stop.
-- `rcu utm health`: verify UTM and SSH availability.
-- `rcu utm status`: show VM list and SSH target details.
+Hinweis: Der Installer verändert bei Bedarf `~/.zshrc`. Ein Kindprozess kann den `PATH` der bereits geöffneten Shell nicht verändern. Öffne bei Bedarf ein neues macOS-Terminal. Eine bestehende Installation wird über versionierte Releases aktualisiert; unbekannte Dateien und Launcher dürfen nicht überschrieben werden.
 
-### Management commands
+## Installationspfade
 
-- `rcu update`: reinstall or update rcu from the source directory.
-- `rcu rollback`: restore the last working version from backup.
-- `rcu uninstall`: remove the `rcu` symlink and PATH entry; preserves config and data.
+- Launcher: `~/.local/bin/rcu`
+- Bundle: `~/.local/share/utm/rcu/releases/<version>`
+- Aktiver Release: `~/.local/share/utm/rcu/current`
+- Vorheriger Release: `~/.local/share/utm/rcu/previous`
+- Private Konfiguration: `~/.config/rcu/config` (0600)
+- Bestehende ältere RCU-Backups außerhalb dieses Bundles bleiben unverändert.
 
-Progress percentages reflect completed check milestones, NOT actual OS boot percentages; UTM does not expose a validated numerical boot-progress metric.
+## Befehle (macOS-Host)
 
-## Configuration
+| Befehl | Funktion |
+| --- | --- |
+| `rcu help` | Hilfe |
+| `rcu utm status` | UTM- und SSH-Status ohne VM-Start |
+| `rcu utm health` | UTM-Status und SSH-Authentifizierung prüfen |
+| `rcu utm connect` | SSH-Verbindung testen |
+| `rcu utm shell` | Interaktive Debian-Shell öffnen; mit `exit` nach macOS zurückkehren |
+| `rcu utm start` | Vorhandene VM starten, danach SSH-Bereitschaft prüfen |
+| `rcu utm stop` | Ausschließlich regulären Shutdown anfordern |
+| `rcu update <quellverzeichnis>` | Versionierten Release aus einem vertrauenswürdigen lokalen Checkout installieren |
+| `rcu rollback` | Auf den vorherigen Release zurückschalten |
+| `rcu uninstall` | Launcher entfernen und Bundle archivieren; Konfiguration erhalten |
 
-`~/.config/rcu/config` is copied on the first installation and is private to each Mac. Change VM name, IP, identity key and user per Mac. The configuration file is parsed by a strict validator — no shell code is executed from config values. Only known keys are accepted. The file must have `0600` permissions and must not be a symlink.
+`rcu update` erwartet ein vollständiges, vertrauenswürdiges RCU-Quellverzeichnis mit `install.sh` und `VERSION` (beispielsweise einen neu geklonten Checkout). Es lädt selbst keine Dateien aus dem Internet nach.
 
-The SSH host fingerprint MUST be verified by the operator before initial connection. No automatic host key acceptance is enabled.
+## Konfiguration und Sicherheit
 
-For another Mac with the same VM, install the repository and use an authorized SSH identity on that Mac. The existing VM disk is never copied by this installer.
+Der Installer übernimmt `config/config.example` nur bei fehlender Benutzerkonfiguration nach `~/.config/rcu/config`. Der Parser verwendet eine Whitelist von Schlüsseln und führt keinen fremden Shell-Code über `source`/`eval` aus. Die Datei darf kein Symlink sein und muss restriktive Berechtigungen besitzen. Der SSH-Client verlangt einen zuvor überprüften Host-Key. Der SSH-Private-Key wird ausschließlich lokal auf dem macOS-Host verwendet.
 
-## Safety and rollback
+Installationen verwenden Staging und versionierte Releases mit atomarer Umschaltung des aktiven Links. Ein vorhandener früherer Release bleibt erhalten. Der Uninstaller archiviert das verwaltete Bundle, bewahrt die Konfiguration auf und entfernt nur eigene Launcher-/PATH-Einträge. Ein bekanntes älteres RCU-Rollback-Backup wird dabei nicht verändert.
 
-Run `./install.sh --uninstall` or `rcu uninstall` from the project directory to remove the managed `rcu` symlink and `~/.zshrc` PATH block. It preserves your config, VM, keys, and installed dependencies.
+Die Prozentangaben der CLI beziehen sich auf nachweislich abgeschlossene Prüfschritte, **nicht** auf den numerischen Linux-Bootfortschritt. Während des Bootvorgangs werden der aktuelle UTM-Zustand und die SSH-Bereitschaft geprüft. Für den Gast ohne aktiven QEMU Guest Agent kann UTM keinen belastbaren numerischen Bootfortschritt liefern.
 
-Updates automatically back up the previous managed installation. If an update fails, the previous version is restored. Use `rcu rollback` to manually restore the last backup.
+## Tests und Nachweisgrenzen
 
-## Security properties
+Isolierte Tests (macOS-Host oder Linux mit Mocks):
 
-- **No force-stop fallback**: `rcu utm stop` uses only `utmctl stop --request`. If graceful shutdown fails, the VM state is left unchanged and an error is reported.
-- **Atomic updates**: Staging, integrity check, and atomic rename. Rollback on failure.
-- **Safe uninstall**: Only removes rcu-managed artifacts. Never deletes foreign files or user config.
-- **Config parser**: No `source` or `eval` on config files. Values are validated against a whitelist of allowed keys and safe characters.
-- **Installer conflicts**: Foreign files at the install path are detected and never overwritten.
-- **PATH safety**: Never uses Zsh's `path` special variable. Existing shell configuration is preserved.
+```sh
+/bin/bash tests/smoke.sh
+```
 
-## Testing
+Die Tests erzeugen ein temporäres HOME und verwenden simulierte UTM-, SSH-, Homebrew- und gum-Kommandos. Die Testprotokolle vom 03.11.2026 auf macOS zeigen 35 PASS und 0 FAIL in beiden Ausgangszuständen der VM. Zusätzlich wurde `rcu utm start` vom temporären Quellcode aus gegen die reale VM mit erfolgreicher SSH-Authentifizierung ausgeführt, einmal bei bereits laufender und einmal bei zuvor ausgeschalteter VM.
 
-Run `bash tests/smoke.sh` for isolated mock tests (PASS/FAIL/SKIP semantics). Tests verify UTM commands, config parser security, installer safety, and shutdown behavior without requiring a real VM or macOS-specific services.
+Noch nicht vollständig abgenommen sind die produktive Installation vom GitHub-Checkout, die echte interaktive TTY-Darstellung und ein realer regulärer VM-Shutdown. Ein bestandener Mock-Test ersetzt diese Prüfungen nicht.

@@ -1,68 +1,39 @@
 #!/bin/bash
+# Stable entry point. Resolve launcher symlink before loading runtime modules.
 set -euo pipefail
-RCU_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=../lib/core.sh
+entry="${BASH_SOURCE[0]}"
+if [[ -L "$entry" ]]; then
+  target="$(readlink "$entry")"
+  if [[ "$target" == /* ]]; then entry="$target"; else entry="$(dirname "$entry")/$target"; fi
+fi
+RCU_ROOT="$(CDPATH= cd -- "$(dirname "$entry")/.." && pwd -P)"
+export RCU_ROOT
+# shellcheck source=lib/core.sh
 source "$RCU_ROOT/lib/core.sh"
-# shellcheck source=../lib/backends/utm.sh
+# shellcheck source=lib/backends/utm.sh
 source "$RCU_ROOT/lib/backends/utm.sh"
-[[ "$(uname -s)" == Darwin || "${RCU_TEST:-0}" == 1 ]] || die 'Run rcu on macOS (host), not in Debian VM.'
-
-# --- Top-level commands (not provider-gated) ---
-case "${1:-}" in
-  help|--help|"")
-    show_help; exit 0 ;;
+[[ "$(uname -s)" == Darwin || "${RCU_TEST:-0}" == 1 ]] || die 'Run rcu on macOS, not inside the Debian VM.'
+case "${1:-help}" in
+  help|--help) show_help ;;
   update)
-    shift
-    install_script="$RCU_ROOT/install.sh"
-    [[ -f "$install_script" ]] || die "install.sh not found at $install_script"
-    exec bash "$install_script" "$@" ;;
+    [[ $# -eq 2 && -f "$2/install.sh" ]] || die 'Usage: rcu update <trusted-source-repository-directory>'
+    exec /bin/bash "$2/install.sh" ;;
   rollback)
-    shift
-    prefix="$HOME/.local/share/rcu"
-    # Find the most recent backup
-    latest_backup=""
-    for d in "$prefix".backup.*; do
-      [[ -d "$d" ]] || continue
-      if [[ -z "$latest_backup" || "$d" > "$latest_backup" ]]; then
-        latest_backup="$d"
-      fi
-    done
-    [[ -n "$latest_backup" && -d "$latest_backup" ]] || die "No backup found for rollback"
-    [[ -f "$latest_backup/.rcu-managed" ]] || die "Backup is not a valid rcu installation"
-    # Verify integrity before restoring
-    /bin/bash -n "$latest_backup/bin/rcu" "$latest_backup/lib/core.sh" "$latest_backup/lib/backends/utm.sh" \
-      || die "Backup failed syntax validation; cannot rollback"
-    # Atomic swap
-    if [[ -d "$prefix" ]]; then
-      old_backup="$prefix.backup.$(date +%Y%m%d%H%M%S)"
-      mv -f "$prefix" "$old_backup" || die "Cannot back up current installation before rollback"
-    fi
-    mv -f "$latest_backup" "$prefix" || die "Cannot restore backup"
-    # Clean up old backups, keep last 3
-    mapfile -t backups < <(find "$(dirname "$prefix")" -maxdepth 1 -name "$(basename "$prefix").backup.*" -type d 2>/dev/null | sort -r)
-    if (( ${#backups[@]} > 3 )); then
-      for ((i=3; i<${#backups[@]}; i++)); do
-        rm -rf "${backups[$i]}"
-      done
-    fi
-    notice "Rolled back to $(basename "$latest_backup")"
-    exit 0 ;;
+    [[ $# -eq 1 ]] || die 'Usage: rcu rollback'
+    exec /bin/bash "$RCU_ROOT/installer/rollback.sh" ;;
   uninstall)
+    [[ $# -eq 1 ]] || die 'Usage: rcu uninstall'
+    exec /bin/bash "$RCU_ROOT/installer/uninstall.sh" ;;
+  utm)
     shift
-    install_script="$RCU_ROOT/install.sh"
-    [[ -f "$install_script" ]] || die "install.sh not found at $install_script"
-    exec bash "$install_script" --uninstall "$@" ;;
-esac
-
-# --- Provider commands ---
-[[ "$1" == utm ]] || die "Unknown provider '$1'; use: rcu utm <command>"
-shift
-case "${1:-}" in
-  start) utm_start ;;
-  connect) utm_connect ;;
-  shell) utm_shell ;;
-  stop) utm_stop ;;
-  health) utm_health ;;
-  status) utm_status ;;
-  *) die "Unknown action '${1:-}'. Try: rcu help" ;;
+    case "${1:-}" in
+      start) utm_start ;;
+      connect) utm_connect ;;
+      shell) utm_shell ;;
+      stop) utm_stop ;;
+      health) utm_health ;;
+      status) utm_status ;;
+      *) die 'Usage: rcu utm {start|connect|shell|stop|health|status}' ;;
+    esac ;;
+  *) die 'Usage: rcu {help|update|rollback|uninstall|utm}' ;;
 esac
