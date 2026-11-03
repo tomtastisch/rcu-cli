@@ -1,0 +1,28 @@
+name: RCU regression
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Shell and lifecycle regression
+        run: |
+          /bin/bash --version
+          /bin/bash tests/smoke.sh
+          /bin/bash tests/portable.sh
+          /bin/bash tests/network.sh
+      - name: First-run terminal and upload regression
+        run: python3 tests/interactive.py
+      - name: ShellCheck
+        if: runner.os == 'Linux'
+        run: shellcheck -x -S warning -e SC2034 bin/rcu lib/*.sh lib/ssh-askpass lib/backends/*.sh installer/*.sh install.sh tests/*.sh

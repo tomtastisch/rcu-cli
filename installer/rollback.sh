@@ -1,7 +1,7 @@
 #!/bin/bash
 # Switch back to the previous verified release; do not remove any files.
 set -euo pipefail
-source "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
+source "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/common.sh"
 rcu_check_platform
 rcu_check_base
 rcu_check_launcher

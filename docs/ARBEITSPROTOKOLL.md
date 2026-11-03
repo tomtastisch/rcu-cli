@@ -9,11 +9,14 @@ nicht aufgenommen.
 
 | Phase | Status | Stand |
 |---|---|---|
-| 1 Diagnose | PASS | Ausgangszustand erfasst; Root Cause für direkten Einstieg reproduziert |
-| 2 Minimale Implementierung | PASS | Direkter Launcher und nachvollziehbare SSH-Warteanzeige umgesetzt |
-| 3 Testgetriebene Umsetzung | PASS | Regressionstests ergänzt; vollständige isolierte Suite 40/0 |
-| 4 Reale Abnahme | PASS | UTM-/SSH-/TTY-Abnahme und produktive Installation bestanden |
-| 5 Veröffentlichung | PASS | PR gemerged; alle verfügbaren GitHub-Checks abgeschlossen |
+| 1 Diagnose | PASS | Portabilitätsdefekte auf Basis 158bf949 nachgewiesen; siehe Schritt 12 |
+| 2 Minimale Implementierung | PASS | 0.4.0: Einrichtung, UUID, dynamische Adresse, Keychain und Upload implementiert |
+| 3 Testgetriebene Umsetzung | PASS | Isolierte Regressionen: 40 Lifecycle-, 30 Portabilitäts-, 8 Netzwerk- und 5 PTY-Prüfgruppen |
+| 4 Reale Abnahme | BLOCKED | Aktueller 0.4.0-Stand ohne Zugriff auf macOS/UTM nicht real geprüft |
+| 5 Veröffentlichung | BLOCKED | Entwurfs-PR vorbereiten; kein Merge ohne aktuelle reale Pflichtabnahme |
+
+Die Schritte 1–11 beschreiben den historischen 0.3.0-Stand. Dessen PASS-Werte
+gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
 
 ## Einträge
 
@@ -148,3 +151,89 @@ nicht aufgenommen.
 - **Ergebnis/Nachweis:** Greptile Review `SUCCESS`, Socket Security Project Report `SUCCESS`, Socket Security Pull Request Alerts `SUCCESS`, Greptile TREX `NEUTRAL`/`skipping`; kein Check `FAILURE`.
 - **Status:** PASS
 - **Nächster Schritt:** Entfällt; Abschluss-Gate vollständig PASS.
+
+
+### Schritt 12 – Portabilitätsreparatur: Ausgangszustand und RED
+
+- Zeitpunkt: 2026-11-03T17:06:00+01:00
+- Phase / Ort: Diagnose und Regression / isolierter Linux-Workspace, kein Zugriff auf macOS-Host oder Debian-VM.
+- Ausgangszustand: Remote-main und Clone `158bf949b44da9fb5d08a6808018582ec0becef2`, VERSION 0.3.1, sauberer Working Tree. Produktiv installierte Version nicht zugänglich. Berichtete lokale 0.3.2–0.3.6-Patches liegen im Remote nicht vor und wurden nicht als Code übernommen.
+- Ziel: Keine fremden VM-/SSH-Vorgaben; einmalige UUID-/Benutzer-/Authentifizierungseinrichtung; dynamische IP; sicherer Dateitransfer; klare Terminalanzeige.
+- Aktion / Befund: `config/config.example`, `lib/core.sh`, `lib/backends/utm.sh`, Installer, CLI und Tests gelesen. Feste UUID, Namensgleichheit, IP, Benutzer und verpflichtender CLion-Schlüssel bestätigt. Bestehende Tests teilen diese Annahmen. Bereitschaftsprüfung erzwingt BatchMode und Schlüssel.
+- Nachweis: `/bin/bash tests/smoke.sh` vor Änderung: Exit 0, 40 PASS / 0 FAIL. Neue Portabilitätstests vor Implementierung: Exit 1, 15 PASS / 16 FAIL, insbesondere unbekanntes CONFIG_VERSION, fehlendes Setup und Schlüsselzwang. Zwei unzutreffende neue Testannahmen vor Implementierungsabnahme korrigiert.
+- Status: PASS (Diagnose); FAIL (erwartete RED-Regression).
+- Änderungen / Plan: Module für Setup, Netzermittlung und Keychain-Askpass; Auswahl anhand UUID; Guest-Agent-IP oder NIC/DHCP-Abgleich; Passwort über nativen security-Prompt, keine Secret-Argumente; UUID-gebundener Host-Key; SCP -P und derselbe Zugang. Release 0.4.0 verhindert Kollision mit berichteter lokaler 0.3.6.
+- Rollback: Ausgangscommit bleibt unverändert; Feature-Branch `fix/portable-vm-setup`. Keine produktive Installation geändert. Altes Installer-Rollback bleibt erhalten; alte Releases können die neue Profilsemantik nicht übernehmen und sind für die neuen Zugänge nicht freigegeben.
+- Blocker: Reale UTM-/Keychain-/TTY-/Gast-Abnahme und produktive Installation sind ohne Mac-Zugriff BLOCKED. Kein Merge bei fehlender Live-Abnahme.
+- Nächster Schritt: Implementierung und isolierte Regressionen; unabhängiger Review, PR als Draft mit expliziten Live-Gates.
+
+### Schritt 13 – Wiederaufnahme und isolierte Verifikation
+
+- Zeitpunkt: 2026-11-03T18:23:00+01:00
+- Phase / Ort: Test und Review / isolierter Linux-Workspace; kein macOS-Host und keine Debian-VM.
+- Ausgangszustand und Ziel: Vorhandene uncommittete 0.4.0-Änderungen auf `fix/portable-vm-setup` erhalten und die zuletzt offenen Dialog-/Upload-Prüfungen neu ausführen.
+- Aktion: Working Tree, Historie und Remote gelesen. `git ls-remote origin refs/heads/main` liefert weiterhin `158bf949b44da9fb5d08a6808018582ec0becef2`. `/bin/bash tests/smoke.sh`, `/bin/bash tests/portable.sh`, `/bin/bash tests/network.sh` und `python3 tests/interactive.py` erneut ausgeführt, jeweils Exit 0.
+- Ergebnis: 40/0 Lifecycle, 30/0 Portabilität, 4 Netzwerk-Prüfgruppen und 5 PTY-Prüfgruppen. PTY umfasst verdeckte Erfassung, explizite Host-Vertrauensprüfung, wiederholten Start ohne Neuanlage, Upload mit Leerzeichen und Fehlercode 9 sowie verweigerte Askpass-Fremdprompts. Nur simulierte Dienste; kein Nachweis nativer Integration.
+- Fehlversuch / Reaktion: ShellCheck zunächst nicht installiert. Isoliert unter `/tmp/rcu-shellcheck` bereitgestellt, keine Projektabhängigkeit. Erster Lintlauf Exit 1: SC2154 für modulübergreifend erzeugtes `ssh_opts`. Im Upload lokal initialisiert, damit Übergabe und Zuständigkeit ausdrücklich sind. Kein globales Unterdrücken des Befunds.
+- Schnittstellenprüfung: Offizielle UTM-Scripting-Referenz bestätigt `network interfaces` und `address` als MAC. UTM-Quellcode bestätigt zeilenweise `ip-address`-Ausgabe und erforderliches `stop --request`. Aktueller Apple-Security-Quellcode bestätigt den verdeckten Bestätigungsdialog bei argumentlosem abschließendem `-w`. Quellen: https://docs.getutm.app/scripting/reference/ ; https://github.com/utmapp/UTM/blob/main/utmctl/UTMCtl.swift ; https://github.com/apple-oss-distributions/Security/blob/main/SecurityTool/macOS/keychain_add.c (Blob 960718596e4c8dfe8d515f3b84079f06c8ef1db4).
+- Komponenten: `lib/backends/utm.sh`, Tests, dieses Protokoll. Historische Master-Tabelle ausdrücklich auf die aktuelle Reparatur umgestellt, ohne frühere Einträge umzudeuten.
+- Status: PASS für isolierte Funktionsprüfungen; Lint-Nachprüfung und unabhängiger QA-/Security-Review ausstehend. Native Pflichtabnahme BLOCKED.
+- Nächster Schritt: Unabhängigen Review auswerten, Befunde reproduzieren, abschließende Checks ausführen und geprüften Stand als Entwurfs-PR bereitstellen. Keine produktive Installation geändert; Rollbackbasis bleibt 158bf949.
+
+### Schritt 14 – Unabhängige QA/Security und reproduzierte Korrekturen
+
+- Zeitpunkt: 2026-11-03T18:30:00+01:00
+- Phase / Ort: Review, RED/GREEN / isolierter Linux-Workspace; keine Host-/Gaständerung.
+- Ausgangszustand und Ziel: Unabhängiger read-only Review des vollständigen Diffs durch separaten Kontext; native Grenzen und Fehlerpfade prüfen.
+- Befunde / Reproduktion: `bounded 2 cat` mit Heredoc liefert leer, weil asynchrone Prozesse ohne explizite Eingabe `/dev/null` erhalten. Damit ging das Skript für die UTM-MAC-Ermittlung verloren. `output=$(bounded 1 /bin/bash -c 'sleep 4; printf late')` endete erst nach 4s mit 124: Nachkomme hielt stdout offen. `WAIT_SECONDS=08` bestand die Validierung, scheiterte danach an oktaler Bash-Arithmetik.
+- RED-Nachweis: Neue Regressionen in `tests/network.sh`, vor Korrektur ausgeführt: Exit 1, genau diese drei FAIL-Ausgaben einschließlich arithmetischer Fehlermeldung und gemessenen 4s bei 1s-Limit. Die vier bisherigen Netzwerkprüfungen bestanden weiterhin.
+- Korrektur / Dateien: `lib/core.sh` erhält explizites `<&0`, eine ausschließlich im Funktions-Subshell aktivierte eigene Job-Prozessgruppe und deren Cleanup einschließlich Nachkommen und `wait` bei Timeout, Signal und normalem Ende. Monitor-Modus wird direkt nach dem Start deaktiviert. Validierte numerische Werte werden dezimal normalisiert. `lib/backends/utm.sh` validiert und normalisiert das Shutdown-Wartefenster vor dem Shutdown-Request. `tests/network.sh` prüft auch einen bereits beendeten Worker mit verbleibendem stdout-haltendem Nachkommen.
+- Review-Nachprüfung: Separater Reviewer bestätigte Heredoc- und Prozessgruppenlösung mit realen Linux-Prozessen. Keine weiteren bestätigten Befunde in UUID-Auswahl, Pfadübergabe, regulärem Stop oder Releaseverwaltung. Bash-3.2-/macOS-Verhalten bleibt separat abzunehmen.
+- Einschränkung: Positiver Askpass-/Keychain-Abruf ist unter Linux nicht nativ prüfbar. Der PTY-SSH-Ersatz prüft Umgebungsübergabe, führt aber keinen realen Passwortabruf aus. Negative Askpass-Prompts sind tatsächlich ausgeführt. Nicht als vollständige Keychain-/SFTP-Integration bewerten.
+- Status: PASS für reproduzierte Ursachen und implementierte Korrektur; vollständige abschließende Suite folgt. Reale macOS-/UTM-/Keychain-Abnahme BLOCKED.
+- Nächster Schritt: Vollständige Tests, Lint, Syntax-/Diff-/Secret-Gate; Commit und Draft-PR mit offenen Pflichtabnahmen. Merge bleibt gesperrt.
+
+### Schritt 15 – Abschluss-Gate für den Entwurfsstand
+
+- Zeitpunkt: 2026-11-03T18:35:00+01:00
+- Phase / Ort: Verifikation vor Commit / isolierter Linux-Workspace, Bash 5; kein macOS-Host oder Gast.
+- Ausgangszustand und Ziel: Korrigierten integrierten 0.4.0-Stand prüfen; ausschließlich auftragsbezogene Änderungen sichern.
+- Aktion / Ergebnis: Vollständige Befehle `/bin/bash tests/smoke.sh` (40 PASS / 0 FAIL), `/bin/bash tests/portable.sh` (30 PASS / 0 FAIL), `/bin/bash tests/network.sh` (8 PASS-Gruppen) und `python3 tests/interactive.py` (5 PASS-Gruppen), jeweils Exit 0. ShellCheck mit `-x -S warning -e SC2034` über CLI, alle Laufzeit-/Installer-/Testskripte: Exit 0. Bash-Syntax separat für jede Shell-Datei und `git diff --check`: Exit 0.
+- Fehlversuch / Reaktion: Neue Testliteral-Zeichenfolge `done` verursachte zunächst ShellCheck SC1010; Literal ausdrücklich quotiert, betroffene Netzwerksuite und vollständiges Syntax-/Lint-/Diff-Gate erneut Exit 0. Kein Diagnostic unterdrückt.
+- Review: Unabhängiger Nachreview bestätigt alle vier neuen Netzwerkregressionen und findet in den geprüften Korrekturen keinen verbleibenden wesentlichen Implementierungsbefund. Native positive Askpass-/Keychain-, UTM-/IP- und SFTP-Integration weiterhin nicht behauptet.
+- Protokoll-/Security-Gate: Gesamten geänderten Diff und neue Dateien auf Scope, Konfliktmarker, übernommene Maschinenwerte und Geheimnisse geprüft. Testpasswort ausschließlich synthetische Fixture. Protokoll trennt historische Abnahmen, aktuelle Simulation und blockierte Live-Gates. Keine reale Installation und kein Benutzerprofil geändert.
+- Status: PASS für Commit-/Draft-PR-Gate. BLOCKED für produktive Installation, reale Mac-/UTM-Abnahme, Merge und Veröffentlichung nach main.
+- Nächster Schritt: Feature-Branch committen/pushen, Entwurfs-PR erstellen und Remote-/CI-Stand verifizieren. Rollback bleibt unveränderte Ausgangsbasis; isolierter Installer-Update-/Rollback-Test bestanden.
+
+### Schritt 16 – Commit und blockierter Push
+
+- Zeitpunkt: 2026-11-03T18:27:01+01:00 (Systemzeit mit `TZ=Europe/Berlin date --iso-8601=seconds` gelesen).
+- Phase / Ort: Bereitstellung / Linux-Workspace und lesender GitHub-Connector; kein macOS-Host oder Gast.
+- Ausgangszustand und Ziel: Geprüften Stand auf dem Feature-Branch sichern und als Entwurf zur Prüfung bereitstellen.
+- Aktion / Ergebnis: Explizit 19 auftragsbezogene Dateien gestaged; `git diff --cached --check` Exit 0. Commit `fea3c505220c6a0c17f25fbaa8e119b23c8c1635` erstellt, Commit-Zeit 2026-11-03T18:26:27+01:00; Working Tree anschließend sauber. Unabhängiger Nachreview bestätigt 8 Netzwerk-, 30 Portabilitäts- und 5 PTY-Prüfgruppen erneut ohne wesentlichen Restbefund.
+- Blocker: Automatische Freigabeprüfung verweigerte `git push -u origin fix/portable-vm-setup`: vollständige Branch-Veröffentlichung an angeblich unbestätigten Remote und fehlende explizite Veröffentlichungsfreigabe. Kein alternativer Schreibweg verwendet.
+- Lesende Nachprüfung: GitHub-Connector bestätigt Ziel `tomtastisch/rcu-cli`, Repository-ID 1444021695, öffentlich, Standardbranch main und Schreib-/Adminberechtigung des verbundenen Accounts; Clone-URL stimmt exakt mit origin überein. Branchsuche liefert keinen entfernten `fix/portable-vm-setup`; damit kein Push/PR-Erfolg behauptet. Autorisierter Auftrag enthält ausdrücklich PR und regulären Merge im Scope; reale Live-Gates verbieten weiterhin einen Merge dieses Standes.
+- Zeitkorrektur: Die manuell eingetragenen Zeitangaben 18:30/18:35 in Schritt 14/15 waren ungenau und liegen nach dem tatsächlichen Commit. Diese beiden Zeitangaben gelten nicht als präzise Messwerte; beide Schritte wurden vor dem nachgewiesenen Commit um 18:26:27 durchgeführt. Ergebnisse und Status bleiben unverändert.
+- Status: PASS für lokalen Commit und Remote-Identitätsprüfung; BLOCKED für Push/PR bis Freigabeprüfung die nachgewiesene Autorisierung akzeptiert. Reale Integration, produktive Installation und Merge weiterhin BLOCKED.
+- Nächster Schritt: Ausschließlich denselben regulären Push mit dieser neuen Remote-/Autorisierungsevidenz erneut prüfen lassen; bei erneuter Ablehnung Veröffentlichung anhalten und explizite Bestätigung einholen. Kein Force-Push und keine Umgehung über Connector-Schreiboperationen.
+
+### Schritt 17 – Veröffentlichung nach erneuter Ablehnung angehalten
+
+- Zeitpunkt: 2026-11-03T18:27:51+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: Abschluss / Linux-Workspace; kein macOS-Host oder Gast.
+- Ausgangszustand und Ziel: Regulären Push nach nachgewiesener Remote-Identität erneut prüfen lassen.
+- Aktion / Ergebnis: Protokollstand als `17844c3b871f70d13b8b2095a4c63240689bb1de` gesichert. Derselbe Push erneut durch automatische Freigabeprüfung abgelehnt: öffentliches Benutzer-Repository nun anerkannt, aber Veröffentlichung neuer Inhalte verlange eine explizite aktuelle Benutzerfreigabe. Kein weiterer Versuch und kein alternativer Schreibweg.
+- Statusmatrix: PASS für Code, 40 Lifecycle-/30 Portabilitätstests, 8 Netzwerk-/5 PTY-Prüfgruppen, ShellCheck, dateiweise Bash-Syntax, Diff und unabhängigen Nachreview; BLOCKED für Push und Entwurfs-PR bis explizite Veröffentlichungsbestätigung. BLOCKED für native Mac-/UTM-/Keychain-/SFTP-Abnahme und produktive Installation mangels Hostzugriff. SKIP für Merge wegen fehlender Pflichtabnahmen; nicht als Erfolg gewertet.
+- Wiederaufnahme: Nach ausdrücklicher Bestätigung regulär `fix/portable-vm-setup` pushen, Draft-PR gegen `main` erstellen und neue Linux-/macOS-CI auswerten. Vor Merge weiterhin reale Pflichtabnahmen erforderlich. Uninstall-/Rollback-Simulation bestanden; keine produktive Version installiert oder geändert. Ausgangs-main bleibt `158bf949b44da9fb5d08a6808018582ec0becef2` laut letzter Remote-Prüfung; kein neuer main-Commit behauptet.
+- Protokoll-Gate: Alle wesentlichen aktuellen Änderungen, Reproduktionen, erfolgreichen/fehlgeschlagenen Checks und Veröffentlichungssperren erfasst; keine Secrets aufgenommen.
+- Nächster Schritt: Konkrete Veröffentlichung des geprüften Feature-Branches und Erstellung eines Entwurfs-PR vom Benutzer bestätigen lassen.
+
+### Schritt 18 – Explizite Veröffentlichungsgenehmigung und Transportwechsel
+
+- Zeitpunkt: 2026-11-03T18:48:21+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: Veröffentlichung / Linux-Workspace und GitHub-Connector; kein macOS-Host oder Gast.
+- Ausgangszustand und Ziel: Benutzer bestätigt ausdrücklich „ja veröffentlichen“ für den zuvor angebotenen Feature-Branch und Entwurfs-PR. Die neue Freigabe ersetzt die Veröffentlichungssperre aus Schritt 17; keine Freigabe zum Überspringen realer Abnahmekriterien.
+- Aktion / Ergebnis: Sauberen Working Tree, HEAD `1d9b6e6e860e33d6ee56bf94deae28ccb32ba275` und origin geprüft. Regulärer Git-Push wurde zugelassen, scheiterte aber technisch mit `could not read Username for https://github.com`: keine Git-HTTPS-Credentials in dieser Umgebung. Kein Remote-Erfolg behauptet.
+- Entscheidung: Für die autorisierte Veröffentlichung den authentifizierten GitHub-Connector verwenden. Den veröffentlichten Tree mit lokalem Git-Tree abgleichen; neue Commit-ID durch Connector-Erstellung ausdrücklich unterscheiden. Keine History-Umschreibung und kein Schreiben nach main.
+- Status: PASS für explizite Benutzerfreigabe und lokale Integrität; Git-CLI-Transport FAIL. Connector-Veröffentlichung und CI noch offen; reale Abnahme und Merge weiterhin BLOCKED.
+- Nächster Schritt: Identischen Dateibaum als Feature-Branch veröffentlichen, Draft-PR erstellen und Remote-/CI-Ergebnis dokumentieren.

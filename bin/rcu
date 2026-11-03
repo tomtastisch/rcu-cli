@@ -6,18 +6,26 @@ if [[ -L "$entry" ]]; then
   target="$(readlink "$entry")"
   if [[ "$target" == /* ]]; then entry="$target"; else entry="$(dirname "$entry")/$target"; fi
 fi
-RCU_ROOT="$(CDPATH= cd -- "$(dirname "$entry")/.." && pwd -P)"
+RCU_ROOT="$(CDPATH='' cd -- "$(dirname "$entry")/.." && pwd -P)"
 export RCU_ROOT
 # shellcheck source=lib/core.sh
 source "$RCU_ROOT/lib/core.sh"
+# shellcheck source=lib/setup.sh
+source "$RCU_ROOT/lib/setup.sh"
+# shellcheck source=lib/network.sh
+source "$RCU_ROOT/lib/network.sh"
 # shellcheck source=lib/backends/utm.sh
 source "$RCU_ROOT/lib/backends/utm.sh"
 [[ "$(uname -s)" == Darwin || "${RCU_TEST:-0}" == 1 ]] || die 'Run rcu on macOS, not inside the Debian VM.'
 case "${1:-}" in
   '')
     utm_start
-    utm_shell ;;
-  help|--help) show_help ;;
+    user_notice 'Gast-Terminal wird geöffnet. exit kehrt zu macOS zurück; die VM bleibt an.'
+    ssh_terminal ;;
+  help|--help) [[ $# == 1 ]] || die 'Usage: rcu help'; show_help ;;
+  --version) [[ $# == 1 ]] || die 'Usage: rcu --version'; cat "$RCU_ROOT/VERSION" ;;
+  setup) shift; setup_profile "$@" ;;
+  upload) shift; upload "$@" ;;
   update)
     [[ $# -eq 2 && -f "$2/install.sh" ]] || die 'Usage: rcu update <trusted-source-repository-directory>'
     exec /bin/bash "$2/install.sh" ;;
@@ -29,6 +37,7 @@ case "${1:-}" in
     exec /bin/bash "$RCU_ROOT/installer/uninstall.sh" ;;
   utm)
     shift
+    [[ $# == 1 ]] || die 'Usage: rcu utm {start|connect|shell|stop|health|status}'
     case "${1:-}" in
       start) utm_start ;;
       connect) utm_connect ;;
