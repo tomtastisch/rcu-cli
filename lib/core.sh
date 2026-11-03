@@ -31,6 +31,16 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 notice() {
   if [[ -t 1 ]] && command -v gum >/dev/null 2>&1; then gum style --foreground 39 "$*"; else printf '%s\n' "$*"; fi
 }
+ui_enabled() { [[ -t 1 && -t 2 ]] && command -v gum >/dev/null 2>&1; }
+ui_card() {
+  local title="$1" body="$2" content
+  if ui_enabled; then
+    content="$title"$'\n'"$body"
+    gum style --border rounded --border-foreground 39 --padding '0 1' "$content"
+  else
+    printf '%s\n%s\n' "$title" "$body"
+  fi
+}
 user_notice() {
   if [[ -t 1 ]]; then printf '\033[1;33mUSER: %s\033[0m\n' "$*"; else printf 'USER: %s\n' "$*"; fi
 }
@@ -53,7 +63,34 @@ check() {
   [[ "$SSH_PORT" =~ ^[0-9]+$ ]] && (( 10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535 )) || die 'Invalid SSH_PORT.'
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] && (( 10#$WAIT_SECONDS >= 1 && 10#$WAIT_SECONDS <= 3600 )) || die 'Invalid WAIT_SECONDS.'
 }
-phase() { local step="$1" text="$2"; printf '[%d/4] %d%% CHECKS  %s\n' "$step" "$((step*25))" "$text"; }
+phase() {
+  local step="$1" text="$2" percent
+  percent=$((step*25))
+  if ui_enabled; then
+    ui_card "RCU  |  PHASE $step/4  |  $percent%" "$text"
+  else
+    printf '[%d/4] %d%% CHECKS  %s\n' "$step" "$percent" "$text"
+  fi
+}
+progress_bar() {
+  local percent="$1" width=24 filled empty bar i
+  ((filled=percent*width/100))
+  ((empty=width-filled))
+  bar=''
+  for ((i=0; i<filled; i++)); do bar="${bar}#"; done
+  for ((i=0; i<empty; i++)); do bar="${bar}-"; done
+  printf '[%s] %3d%%' "$bar" "$percent"
+}
+render_wait_status() {
+  local elapsed="$1" state="$2" ssh_state="$3" percent="$4" bar
+  bar="$(progress_bar "$percent")"
+  if ui_enabled; then
+    ui_card 'RCU  |  SSH-BEREITSCHAFT' \
+      "VM: $state"$'\n'"SSH: $ssh_state"$'\n'"Wartefenster: $bar"$'\n'"Vergangen: ${elapsed}s / ${WAIT_SECONDS}s"
+  else
+    printf 'SSH_WAIT elapsed=%ss UTM=%s SSH=%s\n' "$elapsed" "$state" "$ssh_state"
+  fi
+}
 spin() {
   local title="$1"; shift
   if [[ -t 1 ]] && command -v gum >/dev/null 2>&1; then
@@ -67,7 +104,28 @@ spin() {
 ssh_opts=(-p "$SSH_PORT" -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=4 -o ConnectionAttempts=1)
 ssh_probe() { local result; result="$(ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" 'id -un' 2>/dev/null)" || return 1; [[ "$result" == "$SSH_USER" ]]; }
 ssh_terminal() { ssh -tt "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST"; }
-wait_probe() { local n=0; while ((n<WAIT_SECONDS)); do ssh_probe && return 0; sleep 2; n=$((n+2)); done; return 1; }
+wait_for_ssh() {
+  local n=0 state percent
+  while ((n<WAIT_SECONDS)); do
+    state="$(utm_state 2>/dev/null || printf 'unknown')"
+    if ssh_probe; then
+      render_wait_status "$n" "$state" 'authenticated' 100
+      return 0
+    fi
+    percent=$((n*100/WAIT_SECONDS))
+    ((percent > 99)) && percent=99
+    render_wait_status "$n" "$state" 'unavailable' "$percent"
+    sleep 2
+    n=$((n+2))
+  done
+  state="$(utm_state 2>/dev/null || printf 'unknown')"
+  if ui_enabled; then
+    ui_card 'RCU  |  FEHLER' "SSH-Bereitschaft Timeout"$'\n'"VM: $state"$'\n'"Vergangen: ${n}s / ${WAIT_SECONDS}s" >&2
+  else
+    printf 'SSH_WAIT elapsed=%ss UTM=%s SSH=timeout\n' "$n" "$state" >&2
+  fi
+  return 1
+}
 show_help() {
   printf '%s\n' 'rcu - Remote Control Unit (macOS host)' \
     'rcu utm start     Start VM, then verify SSH' \

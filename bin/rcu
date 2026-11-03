@@ -13,7 +13,10 @@ source "$RCU_ROOT/lib/core.sh"
 # shellcheck source=lib/backends/utm.sh
 source "$RCU_ROOT/lib/backends/utm.sh"
 [[ "$(uname -s)" == Darwin || "${RCU_TEST:-0}" == 1 ]] || die 'Run rcu on macOS, not inside the Debian VM.'
-case "${1:-help}" in
+case "${1:-}" in
+  '')
+    utm_start
+    utm_shell ;;
   help|--help) show_help ;;
   update)
     [[ $# -eq 2 && -f "$2/install.sh" ]] || die 'Usage: rcu update <trusted-source-repository-directory>'
