@@ -12,8 +12,8 @@ nicht aufgenommen.
 | 1 Diagnose | PASS | Ausgangszustand erfasst; Root Cause für direkten Einstieg reproduziert |
 | 2 Minimale Implementierung | PASS | Direkter Launcher und nachvollziehbare SSH-Warteanzeige umgesetzt |
 | 3 Testgetriebene Umsetzung | PASS | Regressionstests ergänzt; vollständige isolierte Suite 40/0 |
-| 4 Reale Abnahme | IN_PROGRESS | UTM-/SSH-/TTY-Abnahme bestanden; produktive Installation noch ausstehend |
-| 5 Veröffentlichung | IN_PROGRESS | Finaltests und Security-Review bestanden; GitHub-Lieferung noch ausstehend |
+| 4 Reale Abnahme | PASS | UTM-/SSH-/TTY-Abnahme und produktive Installation bestanden |
+| 5 Veröffentlichung | PASS | PR gemerged; alle verfügbaren GitHub-Checks abgeschlossen |
 
 ## Einträge
 
@@ -124,3 +124,27 @@ nicht aufgenommen.
 - **Ergebnis/Nachweis:** Der Review meldete: `No security vulnerabilities found in the reviewed changes.` Es wurden keine Findings mit Schweregrad oder Proof-of-Concept ausgegeben.
 - **Status:** PASS
 - **Nächster Schritt:** Vollständiges Protokoll-/Diff-Gate, Commit mit Co-Author-Trailer, PR gegen `main`, CI prüfen und nur bei PASS regulär mergen.
+
+### Schritt 10 – Pull Request, Merge und Remote-Verifikation
+
+- **Zeitpunkt:** 2026-11-03T11:30:19+01:00
+- **Phase:** Veröffentlichung
+- **Ort:** macOS-Host mit GitHub CLI
+- **Ausgangszustand und Ziel:** Die geprüften Änderungen mussten ausschließlich auf einem Feature-Branch veröffentlicht, als Pull Request geprüft und regulär nach `main` gemerged werden.
+- **Aktion:** Feature-Branch `feat/rcu-direct-launcher-ui` gepusht; Pull Request `tomtastisch/rcu-cli#2` erstellt und regulär gemerged. `gh pr view`, `gh pr checks` und `git ls-remote origin` ausgeführt.
+- **Betroffene Komponenten:** Git-Remote; Pull Request; Remote-Branch `main`.
+- **Ergebnis/Nachweis:** PR `https://github.com/tomtastisch/rcu-cli/pull/2` ist `MERGED`. Remote-`main` zeigt auf `823a7ddc80bf10d159160fce7fab878a24b1f454`. Greptile Review sowie beide Socket-Security-Checks sind PASS; Greptile TREX ist abgeschlossen mit `NEUTRAL`/`skipping` und nicht fehlgeschlagen.
+- **Status:** PASS
+- **Nächster Schritt:** Arbeitsprotokolländerung als Follow-up-PR nach `main` veröffentlichen und dessen finalen Remote-Stand verifizieren.
+
+### Schritt 11 – Finalisierung des Arbeitsprotokolls
+
+- **Zeitpunkt:** 2026-11-03T11:39:26+01:00
+- **Phase:** Veröffentlichung
+- **Ort:** macOS-Host mit GitHub CLI
+- **Ausgangszustand und Ziel:** Der finale CI-Zustand musste im versionierten Arbeitsprotokoll nachgetragen werden, ohne den bereits gemergten Release-Commit zu verändern.
+- **Aktion:** Nach Abschluss der GitHub-Checks Statuswerte erneut gelesen; den Protokollstatus von `BLOCKED` auf `PASS` aktualisiert und einen separaten Follow-up-Commit/PR vorbereitet.
+- **Betroffene Komponenten:** `docs/ARBEITSPROTOKOLL.md`; GitHub PR- und Main-Stand.
+- **Ergebnis/Nachweis:** Greptile Review `SUCCESS`, Socket Security Project Report `SUCCESS`, Socket Security Pull Request Alerts `SUCCESS`, Greptile TREX `NEUTRAL`/`skipping`; kein Check `FAILURE`.
+- **Status:** PASS
+- **Nächster Schritt:** Follow-up committen, PR erstellen/mergen und finalen `main`-Commit erneut prüfen.
