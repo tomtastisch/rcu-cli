@@ -83,7 +83,7 @@ upload() {
   [[ ! -d "$src" ]] || scp_opts+=(-r)
   local target="$SSH_HOST"; [[ "$target" != *:* ]] || target="[$target]"
   if [[ "$AUTH_MODE" == keychain ]]; then
-    RCU_KEYCHAIN_SERVICE="rcu.vm.$VM_UUID" RCU_KEYCHAIN_ACCOUNT="$SSH_USER" \
+    RCU_KEYCHAIN_SERVICE="${KEYCHAIN_SERVICE:-rcu.vm.$VM_UUID}" RCU_KEYCHAIN_ACCOUNT="$SSH_USER" \
       SSH_ASKPASS="$RCU_ROOT/lib/ssh-askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-rcu:0}" \
       scp "${scp_opts[@]}" -o BatchMode=no -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password,keyboard-interactive -- "$src" "$SSH_USER@$target:$destination"
   else scp "${scp_opts[@]}" -o BatchMode=yes -- "$src" "$SSH_USER@$target:$destination"; fi

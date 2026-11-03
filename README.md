@@ -1,6 +1,6 @@
 # RCU – Remote Control Unit
 
-Version 0.4.0 · Terminal-Launcher für eine vorhandene UTM-VM unter macOS.
+Version 0.4.1 · Terminal-Launcher für eine vorhandene UTM-VM unter macOS.
 
 RCU wählt eine tatsächlich registrierte VM aus, startet sie bei Bedarf, ermittelt ihre Adresse und öffnet eine SSH-Shell. `exit` kehrt zum Mac zurück und lässt die VM laufen. Keine IDE, keine vorgegebene VM, kein bestimmter Benutzer und kein mitgelieferter SSH-Schlüssel erforderlich.
 
@@ -21,14 +21,16 @@ UTM wird über `utmctl` im PATH, `/Applications/UTM.app` oder `~/Applications/UT
 
 Beim ersten `rcu` oder ausdrücklich mit `rcu setup`:
 
-1. Registrierte UTM-VM wählen. Bei genau einer VM übernimmt RCU deren UUID; bei mehreren erscheint eine Auswahl mit den aktuellen Namen. Die Einrichtung startet keine VM.
+1. Registrierte UTM-VM wählen. Bei genau einer VM übernimmt RCU deren UUID; bei mehreren erscheint eine Auswahl mit den aktuellen Namen. Für die Zugangsprüfung startet die Einrichtung die ausgewählte VM bei Bedarf.
 2. Den Benutzernamen innerhalb des Gasts eingeben.
-3. Passwort über macOS-Keychain oder einen vorhandenen SSH-Agenten/Schlüssel auswählen. Das Passwort wird verdeckt durch den nativen `security`-Prompt eingegeben und bestätigt. Es erscheint weder in Argumenten, Umgebungsvariablen, Konfigurationsdatei noch RCU-Ausgaben.
+3. Das VM-Passwort eingeben. Die normale Einrichtung fragt nicht nach einem Authentifizierungsverfahren. Das Passwort wird verdeckt durch den nativen `security`-Prompt eingegeben und bestätigt. Es erscheint weder in Argumenten, Umgebungsvariablen, Konfigurationsdatei noch RCU-Ausgaben.
 4. Beim ersten SSH-Kontakt die angezeigten Host-Fingerprints mit `/etc/ssh/ssh_host_*_key.pub` im Gast vergleichen und ausdrücklich mit `yes` bestätigen. Ohne Bestätigung erfolgt kein Login.
 
-Spätere Starts verwenden das gespeicherte Profil und den Keychain-Eintrag. macOS darf weiterhin eine Keychain-/Automation-Freigabe verlangen. Eine Passwortänderung wird mit `rcu setup` übernommen. SSH-Agenten und Schlüssel werden nicht erzeugt, kopiert oder im Gast autorisiert.
+5. RCU prüft die Anmeldung mit dem eingegebenen Zugang. Erst nach erfolgreicher Anmeldung wird das Profil gespeichert und die Einrichtung bestätigt. Ein falsches Passwort oder eine nicht erreichbare VM führt zum Fehler und ersetzt kein bestehendes Profil. Jede erneute Einrichtung verwendet zunächst einen neuen Keychain-Eintrag. Bei Fehlschlag wird dieser entfernt; das bisherige Profil und dessen Passwort bleiben erhalten. Frühere Keychain-Einträge bleiben auch nach erfolgreicher Neueinrichtung erhalten.
 
-Ein Server mit ausschließlich `publickey`-Authentifizierung verlangt einen dort autorisierten Schlüssel auf dem Mac oder im SSH-Agenten. Ein Keychain-Passwort aktiviert keine Passwortanmeldung auf dem Server. RCU verändert keine Gast-SSH-Konfiguration.
+Spätere Starts verwenden das gespeicherte Profil und den Keychain-Eintrag; Benutzername und VM-Passwort werden nicht erneut abgefragt. macOS darf weiterhin eine Keychain-/Automation-Freigabe verlangen. Eine Passwortänderung wird mit `rcu setup` übernommen. SSH-Agenten und Schlüssel werden nicht erzeugt, kopiert oder im Gast autorisiert. Die erweiterte Schlüsselanmeldung ist ausdrücklich über `--auth agent` verfügbar.
+
+Voraussetzung für die normale Einrichtung ist eine erlaubte SSH-Passwortanmeldung im Gast. Bei einem Server mit ausschließlich `publickey`-Authentifizierung meldet die Einrichtung den fehlenden Passwortzugang und speichert kein ungeprüftes Profil. Ein Administrator muss die Passwortanmeldung einmalig erlauben, oder es muss ausdrücklich `--auth agent --key ...` verwendet werden. RCU verändert keine Gast-SSH-Konfiguration.
 
 Alte Profile ohne `CONFIG_VERSION=1` werden beim nächsten Start durch die Einrichtung ersetzt. Frühere VM-, IP-, Benutzer- und Schlüsselvorgaben werden dabei nicht übernommen. Alte Klartext-Passwortwerte werden nicht verwendet; die erneute Einrichtung ersetzt die Datei ohne eine Klartext-Sicherung anzulegen. Bei ungültigen alten Profilen bleibt `rcu setup` zur Neuerfassung erreichbar.
 
@@ -38,7 +40,7 @@ Explizite Einrichtung ohne Auswahlfragen, beispielsweise mit vorhandenem Schlüs
 rcu setup --vm <registrierte-UUID> --user <Gastbenutzer> --auth agent --key <absoluter-Schlüsselpfad>
 ```
 
-Ohne `--key` verwendet RCU native OpenSSH-Identitäten und den SSH-Agenten. `--auth keychain` benötigt weiterhin die verdeckte Passworteingabe im Terminal. Passwort-Flags werden abgelehnt.
+Ohne `--key` verwendet RCU native OpenSSH-Identitäten und den SSH-Agenten. Ohne `--auth` ist `keychain` der Standard. `--auth keychain` benötigt weiterhin die verdeckte Passworteingabe im Terminal. Passwort-Flags werden abgelehnt.
 
 ## Netzwerkerkennung
 
@@ -98,11 +100,11 @@ Die Oberfläche verwendet kompakte `gum`-Karten und Auswahldialoge sowie eine ak
 - Aktiver/vorheriger Release: `current` / `previous` im selben Verzeichnis
 - Profil: `${XDG_CONFIG_HOME:-~/.config}/rcu/config`, Modus 0600
 - Host-Keys: `known_hosts` neben dem Profil, Modus 0600
-- Passwort: macOS-Keychain, Service `rcu.vm.<UUID>`, Account `<Gastbenutzer>`
+- Passwort: macOS-Keychain, Service `rcu.vm.<UUID>.<Einrichtungs-ID>` (bestehende Profile weiterhin `rcu.vm.<UUID>`), Account `<Gastbenutzer>`
 
 Der Parser interpretiert Daten ohne `source` oder `eval`. Unbekannte Konfigurationsschlüssel, unsichere Werte und Symlinks werden abgelehnt. Installationen prüfen das Bundle vor atomarer Umschaltung. Geänderte Inhalte dürfen keine bestehende Release-Version überschreiben. Uninstall entfernt nur verwaltete Installationsartefakte und archiviert Releases.
 
-Rollback schaltet den Code zurück und verändert keine Zugangsdaten. Releases vor 0.4.0 verstehen die neue Profilsemantik nicht: Ein erfolgreicher Versionswechsel ist kein Nachweis, dass ein alter Release mit dem neuen Profil funktioniert. Für die Portabilitätsreparatur ist ein erneutes Update auf den geprüften neuen Stand der sichere Wiederanlauf; keine automatische Klartext-Konfigurationssicherung.
+Rollback schaltet den Code zurück und verändert keine Zugangsdaten. Releases vor 0.4.1 verstehen die neue Keychain-Service-Zuordnung nicht: Ein erfolgreicher Versionswechsel ist kein Nachweis, dass ein alter Release mit dem neuen Profil funktioniert. Für die Portabilitätsreparatur ist ein erneutes Update auf den geprüften neuen Stand der sichere Wiederanlauf; keine automatische Klartext-Konfigurationssicherung.
 
 ## Prüfungen
 

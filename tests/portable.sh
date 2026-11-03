@@ -81,14 +81,14 @@ expect 'ambiguous addresses fail noninteractively' reject bash "$src/bin/rcu" ut
 printf '10.1.1.2\n' > "$TEST_IP"
 expect 'authentication failure propagated' reject env TEST_AUTH_FAIL=1 bash "$src/bin/rcu" utm connect
 expect 'shell exit propagated' reject env TEST_SHELL_EXIT=7 bash "$src/bin/rcu" utm shell
-expect 'empty noninteractive setup fails' reject env RCU_CONFIG="$tmp/empty" bash "$src/bin/rcu"
-expect 'explicit setup supports another user' bash "$src/bin/rcu" setup --vm "$uuid" --user guest --auth agent
+expect 'empty noninteractive setup fails' reject env RCU_CONFIG="$HOME/.config/rcu/empty" bash "$src/bin/rcu"
+expect 'explicit setup supports another user' env TEST_USER=guest bash "$src/bin/rcu" setup --vm "$uuid" --user guest --auth agent
 expect 'setup persisted user' grep -q "SSH_USER='guest'" "$RCU_CONFIG"
 expect 'configuration mode is private' test "$(stat -c '%a' "$RCU_CONFIG" 2>/dev/null || stat -f '%Lp' "$RCU_CONFIG")" = 600
 expect 'no IP persisted by auto setup' reject grep -q 'SSH_HOST=' "$RCU_CONFIG"
 expect 'no VM name persisted' reject grep -q 'VM_NAME=' "$RCU_CONFIG"
 expect 'unknown setup flags rejected' reject bash "$src/bin/rcu" setup --password unsafe
-expect 'single VM setup selects automatically' env RCU_CONFIG="$tmp/empty" bash "$src/bin/rcu" setup --user guest --auth agent
+expect 'single VM setup selects automatically' env TEST_USER=guest RCU_CONFIG="$HOME/.config/rcu/empty" bash "$src/bin/rcu" setup --user guest --auth agent
 # Above single-VM case should work; make multiple-VM case explicit below.
 config
 printf '%s\n' '87654321-1234-4567-8910-123456789ABC started A second VM' >> "$TEST_LIST"
