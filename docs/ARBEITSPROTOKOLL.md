@@ -257,3 +257,14 @@ gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
 - RED/GREEN: In `tests/interactive.py` einen symlinkbasierten Elternpfad ergänzt; unveränderte Assertion scheitert danach unter Linux exakt an derselben Stelle (Exit 1). Erwartung auf `local.resolve()` korrigiert; gleiche Argumentgrenzen und Leerzeichen bleiben verpflichtend. Keine Runtime-Änderung und keine Abschwächung auf Teilstringvergleich.
 - Status: FAIL für ersten macOS-CI-Lauf, Ursache reproduziert und Test korrigiert. Gezielter Test und CI-Neulauf folgen; reale UTM-/Keychain-/SFTP-Abnahme bleibt BLOCKED.
 - Nächster Schritt: Gezielte PTY-Suite und Diff prüfen, Testkorrektur samt Protokoll veröffentlichen, beide CI-Jobs erneut abwarten.
+
+### Schritt 21 – PTY-Fixture gegen Echo-Rennen abgesichert
+
+- Zeitpunkt: 2026-11-03T18:53:19+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: Testkorrektur / Linux-Workspace und GitHub-macOS-CI; keine Benutzer-Secrets oder echte Keychain verwendet.
+- Ausgangszustand: Pfadkorrektur lokal mit allen fünf PTY-Prüfgruppen Exit 0 bestätigt und als Remote-Commit `cae62ccfdc74ff3e442bd8da1a85921f0557fe2a` veröffentlicht. Remote-Tree `2031df0669f9eba305fd149be3460238b21c5d9b` stimmt mit lokalem Tree überein. Lokale frühere Historie unter `local/portable-vm-setup-verified` erhalten; aktiver Branch folgt nun dem Remote ohne History-Umschreibung.
+- CI-Ergebnis: Run 41688310126: Ubuntu SUCCESS; macOS-Shell/Lifecycle/Netzwerk SUCCESS, PTY FAIL an der Secret-Abwesenheitsprüfung. Ursache im Test-Security-Ersatz: Prompt wurde ausgegeben, bevor Bash `read -s` Terminal-Echo deaktivierte; schneller PTY-Treiber konnte das synthetische Passwort in diesem Zeitfenster zurückgespiegelt bekommen.
+- Reproduktion: Explizite 0.1s-Verzögerung zwischen Fixture-Prompt und `read -s` eingebaut; unveränderte Secret-Prüfung scheitert unter Linux genauso (Exit 1). Das ist kein Nachweis eines Lecks im nativen macOS-security-Prozess; ausschließlich der Testersatz war betroffen.
+- Korrektur / GREEN: Fixture deaktiviert Echo mit `stty -echo` vor dem Prompt und stellt es per EXIT-Trap wieder her. Verzögerung bleibt als Regression erhalten. `python3 tests/interactive.py`: fünf PASS-Gruppen, Exit 0; Secret-Prüfung unverändert. `git diff --check`: Exit 0. Keine Runtime-Datei geändert.
+- Status: PASS für Reproduktion und gezielte Korrektur; erster und zweiter macOS-CI-Lauf ausdrücklich FAIL, neuer Lauf offen. Reale Pflichtabnahme bleibt BLOCKED; Draft-PR #5 bleibt ungemerged.
+- Nächster Schritt: Testkorrektur und Protokoll veröffentlichen und neue Linux-/macOS-CI abwarten.

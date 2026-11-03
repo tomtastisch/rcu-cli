@@ -33,7 +33,11 @@ style) shift; printf '%s\\n' "$@" ;;
 esac''',
         'security': '''printf 'security %s\\n' "$*" >> "$TEST_LOG"
 [[ "$1" == add-generic-password && "${!#}" == -w ]] || exit 70
+stty -echo
+trap 'stty echo' EXIT
 printf 'NATIVE_PASSWORD: ' >&2
+# Deliberately expose the scheduling gap; echo must be off before the prompt.
+sleep 0.1
 IFS= read -rs password
 printf '\\n' >&2
 printf '%s' "$password" > "$TEST_SECRET_STORE"
