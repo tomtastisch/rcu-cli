@@ -8,7 +8,7 @@ RCU läuft auf dem macOS-Host, nicht innerhalb der Debian-VM. Es nutzt UTM (`utm
 
 Voraussetzungen: macOS mit installierter UTM-App, GitHub CLI `gh` (bereits authentifiziert und mit Zugriff auf das **private** Repository `tomtastisch/rcu-cli`), eine vorhandene UTM-VM sowie konfigurierte SSH-Authentifizierung und verifizierter SSH-Host-Key. Die Installation prüft Homebrew und `gum`; fehlende Abhängigkeiten können eine interaktive, gegebenenfalls privilegierte Installation erfordern.
 
-Im normalen **macOS-Terminal** exakt diesen Befehl ausführen (nicht innerhalb der Debian-VM):
+Im normalen **macOS-Terminal** exakt diesen Befehl ausführen:
 
 ```sh
 rcu_src="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/rcu-from-git.XXXXXX")" && gh repo clone tomtastisch/rcu-cli "$rcu_src/rcu-cli" && /bin/bash "$rcu_src/rcu-cli/install.sh" && "$HOME/.local/bin/rcu" help
