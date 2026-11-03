@@ -1,0 +1,8 @@
+# Local trusted shell assignments. Private machine configuration, no secrets.
+VM_NAME='Virtuelle Maschine'
+SSH_HOST='192.168.64.2'
+SSH_USER='lars'
+SSH_PORT=22
+SSH_KEY="$HOME/.ssh/thi-clion-ed25519"
+WAIT_SECONDS=120
+UTMCTL='/Applications/UTM.app/Contents/MacOS/utmctl'

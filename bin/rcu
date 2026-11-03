@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+RCU_ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../lib/core.sh
+source "$RCU_ROOT/lib/core.sh"
+# shellcheck source=../lib/backends/utm.sh
+source "$RCU_ROOT/lib/backends/utm.sh"
+[[ "$(uname -s)" == Darwin || "${RCU_TEST:-0}" == 1 ]] || die 'Run rcu on macOS (host), not in Debian VM.'
+if [[ "${1:-}" == help || "${1:-}" == --help || $# -eq 0 ]]; then show_help; exit 0; fi
+[[ "$1" == utm ]] || die "Unknown provider '$1'; use: rcu utm <command>"
+shift
+case "${1:-}" in
+  start) utm_start ;;
+  connect) utm_connect ;;
+  shell) utm_shell ;;
+  stop) utm_stop ;;
+  health) utm_health ;;
+  status) utm_status ;;
+  *) die "Unknown action '${1:-}'. Try: rcu help" ;;
+esac
