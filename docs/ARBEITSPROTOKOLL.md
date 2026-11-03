@@ -268,3 +268,13 @@ gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
 - Korrektur / GREEN: Fixture deaktiviert Echo mit `stty -echo` vor dem Prompt und stellt es per EXIT-Trap wieder her. Verzögerung bleibt als Regression erhalten. `python3 tests/interactive.py`: fünf PASS-Gruppen, Exit 0; Secret-Prüfung unverändert. `git diff --check`: Exit 0. Keine Runtime-Datei geändert.
 - Status: PASS für Reproduktion und gezielte Korrektur; erster und zweiter macOS-CI-Lauf ausdrücklich FAIL, neuer Lauf offen. Reale Pflichtabnahme bleibt BLOCKED; Draft-PR #5 bleibt ungemerged.
 - Nächster Schritt: Testkorrektur und Protokoll veröffentlichen und neue Linux-/macOS-CI abwarten.
+
+### Schritt 22 – Plattform-CI bestanden; Draft-Abschluss
+
+- Zeitpunkt: 2026-11-03T18:54:52+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: CI-Abnahme / GitHub Ubuntu und macOS; kein persönlicher macOS-Host oder Gast.
+- Geprüfter Remote-Stand: `505f131311b5b9f4d4dd0f1a9488a0f64b055443`, Feature-Branch `fix/portable-vm-setup`, Draft-PR https://github.com/tomtastisch/rcu-cli/pull/5. Lokal und nach Fetch Remote-Tree identisch: `daf540e91c07ec51ab1818313c0a875c8206bd35`.
+- CI-Ergebnis: Run https://github.com/tomtastisch/rcu-cli/actions/runs/41688644826 — Job 126101030392 `regression (macos-latest)` SUCCESS; Job 126101030956 `regression (ubuntu-latest)` SUCCESS. Beide Plattformen bestehen Shell/Lifecycle und vollständige PTY-/Upload-Fixture einschließlich Symlink-Elternpfad und absichtlich verzögertem Passwort-Read. ShellCheck auf Ubuntu SUCCESS; macOS-ShellCheck planmäßig SKIP, kein fehlendes Pflichtgate, da derselbe Shellcode auf Ubuntu gelintet wird.
+- Statusmatrix: PASS für Feature-Veröffentlichung, überprüften Tree, 40 Lifecycle-/30 Portabilitätstests, 8 Netzwerk-/5 PTY-Gruppen unter beiden Plattformen, Linux-Lint und unabhängigen Runtime-Review. BLOCKED für reale UTM-/Keychain-/SFTP-Abnahme und produktive Installation mangels Zugriff. SKIP für Merge/Release nach main, da reale Pflichtgates fehlen.
+- Remote-Gate: PR weiterhin OPEN/DRAFT, nicht gemerged; base main unverändert `158bf949b44da9fb5d08a6808018582ec0becef2`. Keine produktive Version auf dem Benutzer-Mac installiert. Veröffentlichung ist ein prüfbarer Feature-Branch, kein fertig abgenommener main-Release.
+- Protokoll-Gate / Nächster Schritt: Dieser reine Dokumentationsnachtrag hält den erfolgreich geprüften Code-/Teststand unverändert. Nach Veröffentlichung dieses Nachtrags dessen CI erneut beobachten. Anschließend reale Pflichtabnahmen durchführen und protokollieren; kein automatischer Merge.
