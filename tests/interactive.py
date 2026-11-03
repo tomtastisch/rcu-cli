@@ -163,7 +163,7 @@ exit "${TEST_SCP_EXIT:-0}"'''
         previous = rejected_profile.read_bytes() if existing else None
         previous_items = {f.name: f.read_bytes() for f in base.glob('fake-keychain.*')}
         master, slave = pty.openpty()
-        process = subprocess.Popen(['/bin/bash', str(ROOT / 'bin/rcu')], stdin=slave,
+        process = subprocess.Popen(['/bin/bash', str(ROOT / 'bin/rcu'), 'setup'], stdin=slave,
             stdout=slave, stderr=slave, env=dict(env, HOME=str(rejected_home),
             XDG_CONFIG_HOME=str(rejected_home / '.config'), TEST_AUTH_FAIL='1'))
         os.close(slave)
@@ -189,6 +189,10 @@ exit "${TEST_SCP_EXIT:-0}"'''
                 if process.poll() is not None:
                     break
             assert process.wait(timeout=2) != 0, 'Rejected password was accepted'
+            assert password_sent, 'Failure must exercise password re-enrollment, not reconnect'
+            operations = (base / 'commands').read_text()
+            assert operations.count('security add-generic-password') == (3 if existing else 2)
+            assert operations.count('security delete-generic-password') == (2 if existing else 1)
             if existing:
                 assert rejected_profile.read_bytes() == previous, 'Working profile replaced'
             else:
