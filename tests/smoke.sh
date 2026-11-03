@@ -101,7 +101,8 @@ case "${1:-}" in
     shift; while (( $# > 1 )); do shift; done; printf '%s\n' "${1:-}"
     ;;
   choose) head -1 ;;
-  input) printf '%s\n' "${TEST_GUM_INPUT:-}" ;;
+  input) printf '%s\n' "${TEST_GUM_INPUT:-}"
+    ;;
   *) head -1 ;;
 esac
 MOCK
@@ -215,6 +216,42 @@ if grep -q 'bounded 3 nc -z' "$src/lib/core.sh"; then
   pass 'bounded 3 nc -z fix is present in core.sh'
 else
   fail 'bounded 3 nc -z fix is missing from core.sh'
+fi
+
+# --- Diagnostic logging ---
+# After a successful connect, a log file must exist with key entries.
+LOG_DIR="$HOME/.local/logs/rcu"
+LOG_FILE="$LOG_DIR/rcu-$(date +%Y-%m-%d).log"
+if [[ -f "$LOG_FILE" ]]; then
+  pass 'diagnostic log file created'
+else
+  fail 'diagnostic log file missing at '$LOG_FILE
+fi
+if [[ -f "$LOG_FILE" ]] && grep -q 'SESSION_START' "$LOG_FILE"; then
+  pass 'log contains SESSION_START'
+else
+  fail 'log missing SESSION_START entry'
+fi
+if [[ -f "$LOG_FILE" ]] && grep -q 'SSH_READY\|SSH_TIMEOUT\|FATAL' "$LOG_FILE"; then
+  pass 'log contains SSH outcome entry'
+else
+  fail 'log missing SSH outcome entry'
+fi
+if [[ -f "$LOG_FILE" ]] && grep -q 'PROFILE_OK' "$LOG_FILE"; then
+  pass 'log contains PROFILE_OK'
+else
+  fail 'log missing PROFILE_OK entry'
+fi
+# Verify log directory permissions
+if [[ -d "$LOG_DIR" ]]; then
+  perms="$(stat -f '%Lp' "$LOG_DIR" 2>/dev/null || stat -c '%a' "$LOG_DIR" 2>/dev/null)"
+  if [[ "$perms" == "700" ]]; then
+    pass 'log directory has 700 permissions'
+  else
+    fail "log directory permissions $perms (expected 700)"
+  fi
+else
+  fail 'log directory missing'
 fi
 
 # --- Update and rollback ---
