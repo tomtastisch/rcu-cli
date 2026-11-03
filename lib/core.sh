@@ -169,7 +169,7 @@ wait_for_ssh() {
       fi
       if [[ -n "$SSH_HOST" ]]; then
         valid_host "$SSH_HOST" || die 'Invalid SSH address.'
-        if bounded 2 nc -z -w 1 "$SSH_HOST" "$SSH_PORT" >/dev/null 2>&1; then
+        if bounded 3 nc -z -w 1 "$SSH_HOST" "$SSH_PORT" >/dev/null 2>&1; then
           ensure_host_key
           if [[ "$AUTH_MODE" == keychain && "${RCU_KEYCHAIN_NOTICE:-0}" != 1 ]]; then
             user_notice 'macOS-Keychain kann den Zugriff auf das VM-Passwort abfragen.'

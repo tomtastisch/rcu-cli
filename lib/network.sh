@@ -7,7 +7,7 @@ filter_addresses() {
   # utmctl emits one address per line. Prefer IPv4 for Apple shared networking;
   # retain global IPv6 as well, but reject loopback, unspecified and link-local.
   awk 'function ipv4(s, a,n,i) { n=split(s,a,"."); if(n!=4)return 0; for(i=1;i<=4;i++)if(a[i]!~/^[0-9]+$/ || a[i]>255)return 0; return a[1]>0 && a[1]<224 && a[1]!=127 && !(a[1]==169 && a[2]==254) }
-  {gsub(/^[ \t]+|[ \t\r]+$/, ""); s=tolower($0); if(ipv4(s) || (s ~ /^[0-9a-f:]+$/ && s ~ /:/ && s!="::" && s!="::1" && s!~/^fe[89ab]/ && s!~/^ff/)) print s}' | sort -u
+{gsub(/^[ \t]+|[ \t\r]+$/, ""); s=tolower($0); if(ipv4(s) || (s ~ /^[0-9a-f:]+$/ && s ~ /:/ && s!="::" && s!="::1" && s!~/^fe[89ab]/ && s!~/^ff/)) print s}' | sort -u
 }
 vm_mac_addresses() {
   # UTM scripting configuration is read-only. UUID is passed as data via argv.
@@ -29,21 +29,21 @@ dhcp_addresses() {
   [[ -r "$leases" ]] || return 1
   # MACs are normalized because bootpd can omit leading zeroes.
   awk -v macs="$macs" -v now="$(date +%s)" '
-  function norm(s, a,n,i,r) {n=split(tolower(s),a,":"); if(n!=6)return ""; r=""; for(i=1;i<=6;i++){sub(/^0+/,"",a[i]); if(a[i]=="")a[i]="0"; r=r (i>1?":":"") a[i]} return r}
-  function number(s, i,n,c) {if(s!~/^0x/)return s+0; s=substr(s,3); n=0; for(i=1;i<=length(s);i++){c=index("0123456789abcdef",tolower(substr(s,i,1)))-1; if(c<0)return 0; n=n*16+c} return n}
-  BEGIN {n=split(macs, m,"\n"); for(i=1;i<=n;i++) if(norm(m[i])!="") wanted[norm(m[i])]=1}
-  /^\{/ {ip="";mac="";expiry=0}
-  /ip_address=/ {ip=$0;sub(/.*ip_address=/,"",ip)}
-  /hw_address=/ {mac=$0;sub(/.*hw_address=[^,]*,/,"",mac)}
-  /lease=/ {v=$0;sub(/.*lease=/,"",v);expiry=number(v)}
-  /^\}/ {if(wanted[norm(mac)] && expiry>now)print ip}' "$leases"
+function norm(s, a,n,i,r) {n=split(tolower(s),a,":"); if(n!=6)return ""; r=""; for(i=1;i<=6;i++){sub(/^0+/,"",a[i]); if(a[i]=="")a[i]="0"; r=r (i>1?":":"") a[i]} return r}
+function number(s, i,n,c) {if(s!~/^0x/)return s+0; s=substr(s,3); n=0; for(i=1;i<=length(s);i++){c=index("0123456789abcdef",tolower(substr(s,i,1)))-1; if(c<0)return 0; n=n*16+c} return n}
+BEGIN {n=split(macs, m,"\n"); for(i=1;i<=n;i++) if(norm(m[i])!="") wanted[norm(m[i])]=1}
+/^\{/ {ip="";mac="";expiry=0}
+/ip_address=/ {ip=$0;sub(/.*ip_address=/,"",ip)}
+/hw_address=/ {mac=$0;sub(/.*hw_address=[^,]*,/,"",mac)}
+/lease=/ {v=$0;sub(/.*lease=/,"",v);expiry=number(v)}
+/^\}/ {if(wanted[norm(mac)] && expiry>now)print ip}' "$leases"
 }
 arp_addresses() {
   local macs="$1"
   bounded 2 arp -an 2>/dev/null | awk -v macs="$macs" '
-  function norm(s, a,n,i,r) {n=split(tolower(s),a,":"); if(n!=6)return ""; r=""; for(i=1;i<=6;i++){sub(/^0+/,"",a[i]); if(a[i]=="")a[i]="0"; r=r (i>1?":":"") a[i]} return r}
-  BEGIN {n=split(macs,m,"\n");for(i=1;i<=n;i++)if(norm(m[i])!="")wanted[norm(m[i])]=1}
-  $3=="at" && wanted[norm($4)] {ip=$2;gsub(/[()]/,"",ip);print ip}'
+function norm(s, a,n,i,r) {n=split(tolower(s),a,":"); if(n!=6)return ""; r=""; for(i=1;i<=6;i++){sub(/^0+/,"",a[i]); if(a[i]=="")a[i]="0"; r=r (i>1?":":"") a[i]} return r}
+BEGIN {n=split(macs,m,"\n");for(i=1;i<=n;i++)if(norm(m[i])!="")wanted[norm(m[i])]=1}
+$3=="at" && wanted[norm($4)] {ip=$2;gsub(/[()]/,"",ip);print ip}'
 }
 discover_addresses() {
   local budget="${1:-6}" ips macs limit=3 begin=$SECONDS remaining
