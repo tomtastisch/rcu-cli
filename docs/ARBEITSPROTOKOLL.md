@@ -13,7 +13,7 @@ nicht aufgenommen.
 | 2 Minimale Implementierung | PASS | 0.4.0: Einrichtung, UUID, dynamische Adresse, Keychain und Upload implementiert |
 | 3 Testgetriebene Umsetzung | PASS | Isolierte Regressionen: 40 Lifecycle-, 30 Portabilitäts-, 8 Netzwerk- und 5 PTY-Prüfgruppen |
 | 4 Reale Abnahme | BLOCKED | Aktueller 0.4.0-Stand ohne Zugriff auf macOS/UTM nicht real geprüft |
-| 5 Veröffentlichung | BLOCKED | Entwurfs-PR vorbereiten; kein Merge ohne aktuelle reale Pflichtabnahme |
+| 5 Veröffentlichung | BLOCKED | Feature-Branch und Draft-PR #5 veröffentlicht; kein Merge ohne aktuelle reale Pflichtabnahme |
 
 Die Schritte 1–11 beschreiben den historischen 0.3.0-Stand. Dessen PASS-Werte
 gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
@@ -237,3 +237,23 @@ gelten nicht als Abnahme der aktuellen Portabilitätsreparatur.
 - Entscheidung: Für die autorisierte Veröffentlichung den authentifizierten GitHub-Connector verwenden. Den veröffentlichten Tree mit lokalem Git-Tree abgleichen; neue Commit-ID durch Connector-Erstellung ausdrücklich unterscheiden. Keine History-Umschreibung und kein Schreiben nach main.
 - Status: PASS für explizite Benutzerfreigabe und lokale Integrität; Git-CLI-Transport FAIL. Connector-Veröffentlichung und CI noch offen; reale Abnahme und Merge weiterhin BLOCKED.
 - Nächster Schritt: Identischen Dateibaum als Feature-Branch veröffentlichen, Draft-PR erstellen und Remote-/CI-Ergebnis dokumentieren.
+
+### Schritt 19 – Feature-Branch und Draft-PR veröffentlicht
+
+- Zeitpunkt: 2026-11-03T18:50:01+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: Veröffentlichung / Linux-Workspace und GitHub-Connector; kein macOS-Host oder Gast.
+- Aktion: Geprüfte 19 Änderungsdateien mit Original-Dateimodi über die GitHub-Git-Objekt-API veröffentlicht. Neuer Remote-Commit `c84d85a17c5b5a1c0769cfa3af63c92c51367904` hat unveränderten main-Commit `158bf949b44da9fb5d08a6808018582ec0becef2` als Parent. Feature-Branch `fix/portable-vm-setup` angelegt; Draft-PR https://github.com/tomtastisch/rcu-cli/pull/5 gegen main erstellt. Keine Merge-Aktion.
+- Integritätsnachweis: Remote-Tree und lokaler geprüfter Tree sind identisch: `b11db9a6ecee15ca3be3c605f307ecf20918ce4c`. Nach `git fetch origin fix/portable-vm-setup` bestätigt auch `git rev-parse HEAD^{tree} FETCH_HEAD^{tree}` beide Hashes. Die abweichende Commit-ID entsteht durch Connector-Commit statt lokaler Commit-Historie; Inhalte und ausführbarer Askpass-Dateimodus stimmen überein.
+- CI-Nachweis: PR-Workflow `RCU regression`, Run 41687973182, gestartet. Zum Abfragezeitpunkt führen `regression (macos-latest)` und `regression (ubuntu-latest)` den Schritt Shell/Lifecycle aus; noch kein PASS behauptet. Diese CI isoliert Betriebssystemdienste und ersetzt keine reale UTM-/Keychain-/SFTP-Abnahme.
+- Status: PASS für autorisierte Feature-Veröffentlichung, Draft-PR und Tree-Readback; CI in Bearbeitung. BLOCKED für reale Pflichtabnahmen, produktive Installation und Merge. Frühere Veröffentlichungsblocker aus Schritt 16/17 sind durch ausdrückliche Freigabe und Connector-Transport aufgelöst.
+- Nächster Schritt: CI-Ergebnisse prüfen, etwaige branchbedingte Fehler korrigieren; Draft bis zur realen Pflichtabnahme erhalten. Diesen Protokollnachtrag mit eigenem Commit auf demselben Feature-Branch veröffentlichen.
+
+### Schritt 20 – macOS-CI-Testfehler reproduziert
+
+- Zeitpunkt: 2026-11-03T18:51:01+01:00 (Systemzeit Europe/Berlin).
+- Phase / Ort: CI / GitHub Ubuntu und macOS 26.6.2 arm64; Reproduktion im Linux-Workspace. Keine persönliche UTM-VM oder native Keychain verwendet.
+- Ausgangszustand / Ergebnis: Run 41687973182: Ubuntu-Job 126098681202 SUCCESS. macOS-Job 126098680786: Bash 3.2.57, alle 40 Lifecycle-, 30 Portabilitäts- und 8 Netzwerkprüfgruppen SUCCESS; PTY-Schritt FAIL an der erwarteten lokalen SCP-Pfadzeichenfolge. Erststart, verdeckter Fixture-Dialog und Wiederverwendung bestanden dort bereits.
+- Root Cause: macOS-Temp-Pfad enthält `/var`-Symlink; Upload normalisiert den Elternpfad absichtlich mit `pwd -P`. Der Test erwartete hingegen den nicht normalisierten Pfad. Kein Upload-Produktionsfehler aus diesem Befund abgeleitet.
+- RED/GREEN: In `tests/interactive.py` einen symlinkbasierten Elternpfad ergänzt; unveränderte Assertion scheitert danach unter Linux exakt an derselben Stelle (Exit 1). Erwartung auf `local.resolve()` korrigiert; gleiche Argumentgrenzen und Leerzeichen bleiben verpflichtend. Keine Runtime-Änderung und keine Abschwächung auf Teilstringvergleich.
+- Status: FAIL für ersten macOS-CI-Lauf, Ursache reproduziert und Test korrigiert. Gezielter Test und CI-Neulauf folgen; reale UTM-/Keychain-/SFTP-Abnahme bleibt BLOCKED.
+- Nächster Schritt: Gezielte PTY-Suite und Diff prüfen, Testkorrektur samt Protokoll veröffentlichen, beide CI-Jobs erneut abwarten.

@@ -112,6 +112,11 @@ exit "${TEST_SCP_EXIT:-0}"'''
     local = base / 'Files with spaces'
     local.mkdir()
     (local / 'example.c').write_text('int main(void) { return 0; }\n')
+    # macOS temporary paths include /var -> /private/var. Exercise the same
+    # canonical-parent behavior on every OS instead of relying on that layout.
+    linked_parent = base / 'linked-downloads'
+    linked_parent.symlink_to(base, target_is_directory=True)
+    local = linked_parent / local.name
     for code in [0, 9]:
         result = subprocess.run(['/bin/bash', str(ROOT / 'bin/rcu'), 'upload', str(local), '~/course files/'],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -119,7 +124,7 @@ exit "${TEST_SCP_EXIT:-0}"'''
         assert result.returncode == code, result.stderr.decode()
     assert 'scp -s -P 22 ' in (base / 'commands').read_text()
     assert 'ARG<-r>' in (base / 'commands').read_text()
-    assert 'ARG<' + str(local) + '>' in (base / 'commands').read_text()
+    assert 'ARG<' + str(local.resolve()) + '>' in (base / 'commands').read_text()
     assert 'ARG<caseuser@10.33.44.55:~/course files/>' in (base / 'commands').read_text()
     assert 'caseuser@10.33.44.55:~/course files/' in (base / 'commands').read_text()
     print('PASS upload: shared keychain auth, SFTP, uppercase -P, recursive paths with spaces, exit status')
