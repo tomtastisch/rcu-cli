@@ -23,21 +23,27 @@ utm_start() {
   ui_card 'RCU · Verbindung herstellen' "$VM_NAME"
   phase 1 'VM und Zugang geprüft'
   local state; state="$(utm_state)" || die 'Cannot read VM state.'
+  rcu_log "VM_STATE state=$state vm=$VM_NAME"
   case "$state" in
     started|starting|resuming) ;;
     stopped)
+      rcu_log "VM_START_REQUESTED vm=$VM_NAME"
       user_notice 'UTM-VM wird gestartet. Keine weitere Anwendung erforderlich.'
-      spin 'VM starten' bounded 15 "$UTMCTL" start "$VM_UUID" || die 'UTM VM start failed.' ;;
+      spin 'VM starten' bounded 15 "$UTMCTL" start "$VM_UUID" || die 'UTM VM start failed.'
+      rcu_log "VM_STARTED vm=$VM_NAME" ;;
     *) die "VM state is $state; cannot start safely." ;;
   esac
   phase 2 'Warte auf VM-Netzwerk und SSH'
   wait_for_ssh || die 'SSH readiness failed.'
   phase 3 'SSH-Benutzer authentifiziert'
   phase 4 'Verbindung bereit'
+  rcu_log "UTM_START_COMPLETE vm=$VM_NAME host=$SSH_HOST"
 }
 utm_connect() {
   prepare_profile
-  [[ "$(utm_state)" == started ]] || die 'VM not running.'
+  local state; state="$(utm_state)" || die 'VM not running.'
+  rcu_log "UTM_CONNECT state=$state vm=$VM_NAME"
+  [[ "$state" == started ]] || die 'VM not running.'
   wait_for_ssh || die 'SSH login not available.'
 }
 utm_shell() {
@@ -48,18 +54,22 @@ utm_shell() {
 utm_stop() {
   # Stopping requires an existing profile, never a first-run wizard.
   [[ "$CONFIG_VERSION" == 1 ]] || die 'No configured VM. Run rcu setup first.'
+  _rcu_log_init
+  rcu_log "UTM_STOP_REQUEST vm=$VM_UUID"
   find_utmctl; valid_uuid "$VM_UUID" || die 'Invalid VM UUID.'; ensure_vm
   local state; state="$(utm_state)" || die 'Cannot read VM state.'
-  [[ "$state" != stopped ]] || { notice 'Already stopped.'; return 0; }
+  rcu_log "VM_STATE state=$state vm=$VM_NAME"
+  [[ "$state" != stopped ]] || { notice 'Already stopped.'; rcu_log "VM_ALREADY_STOPPED"; return 0; }
   [[ "$state" == started ]] || die "Unexpected VM state: $state"
   [[ "$WAIT_SECONDS" =~ ^[0-9]{1,4}$ ]] && ((10#$WAIT_SECONDS>=1 && 10#$WAIT_SECONDS<=3600)) || die 'Invalid WAIT_SECONDS.'
   WAIT_SECONDS=$((10#$WAIT_SECONDS))
   user_notice 'Regulärer VM-Shutdown wird angefordert. Kein Force-Stop-Fallback.'
   bounded 15 "$UTMCTL" stop --request "$VM_UUID" || die 'Graceful shutdown request failed; no forced fallback.'
+  rcu_log "VM_STOP_REQUESTED"
   local begin=$SECONDS
   while ((SECONDS-begin<WAIT_SECONDS)); do
     state="$(utm_state)" || die 'Cannot confirm shutdown.'
-    [[ "$state" != stopped ]] || { notice 'UTM confirms VM stopped.'; return 0; }
+    [[ "$state" != stopped ]] || { notice 'UTM confirms VM stopped.'; rcu_log "VM_STOPPED elapsed=$((SECONDS-begin))s"; return 0; }
     sleep 1
   done
   die 'Shutdown not confirmed; VM was not forcibly stopped.'
@@ -75,6 +85,7 @@ utm_status() {
 upload() {
   [[ $# == 2 && -e "$1" && "$2" != -* && "$2" != *[$'\001'-$'\037'$'\177']* ]] || die 'Usage: rcu upload <local-file-or-directory> <guest-path>'
   local src="$1" destination="$2"; src="$(CDPATH='' cd -- "$(dirname "$src")" && pwd -P)/$(basename "$src")"
+  rcu_log "UPLOAD_START src=$src dest=$destination"
   utm_start
   local ssh_opts=()
   ssh_options
@@ -87,4 +98,37 @@ upload() {
       SSH_ASKPASS="$RCU_ROOT/lib/ssh-askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-rcu:0}" \
       scp "${scp_opts[@]}" -o BatchMode=no -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password,keyboard-interactive -- "$src" "$SSH_USER@$target:$destination"
   else scp "${scp_opts[@]}" -o BatchMode=yes -- "$src" "$SSH_USER@$target:$destination"; fi
+  rcu_log "UPLOAD_COMPLETE src=$src dest=$destination"
+}
+# Downloads a file from a URL directly into the guest VM.
+download() {
+  [[ $# == 2 && "$1" == http* && "$2" != -* && "$2" != *[$'\001'-$'\037'$'\177']* ]] || die 'Usage: rcu download <url> <guest-directory>'
+  local url="$1" destination="$2"
+  rcu_log "DOWNLOAD_START url=$url dest=$destination"
+  utm_start
+  local filename
+  filename="$(basename "$url" | sed 's/[?#].*//')"
+  # Sanitize: reject empty or path-traversal filenames from the URL
+  [[ -n "$filename" && "$filename" != *'..'* ]] || die 'Invalid filename derived from URL.'
+  ssh_run "$SSH_USER@$SSH_HOST" "mkdir -p '$destination' && curl -fsSL -o '$destination/$filename' '$url'"
+  rcu_log "DOWNLOAD_COMPLETE url=$url dest=$destination/$filename"
+  notice "Heruntergeladen: $destination/$filename"
+}
+# Copies a file or directory from the guest VM back to the Mac.
+copy() {
+  [[ $# == 2 && "$1" != -* && "$2" != -* && "$1" != *[$'\001'-$'\037'$'\177']* && "$2" != *[$'\001'-$'\037'$'\177']* ]] || die 'Usage: rcu copy <guest-path> <local-destination>'
+  local guest_path="$1" local_dest="$2"
+  rcu_log "COPY_START guest=$guest_path local=$local_dest"
+  utm_start
+  local ssh_opts=()
+  ssh_options
+  local scp_opts=(-s -P "$SSH_PORT" "${ssh_opts[@]:2}")
+  local target="$SSH_HOST"; [[ "$target" != *:* ]] || target="[$target]"
+  if [[ "$AUTH_MODE" == keychain ]]; then
+    RCU_KEYCHAIN_SERVICE="${KEYCHAIN_SERVICE:-rcu.vm.$VM_UUID}" RCU_KEYCHAIN_ACCOUNT="$SSH_USER" \
+      SSH_ASKPASS="$RCU_ROOT/lib/ssh-askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-rcu:0}" \
+      scp "${scp_opts[@]}" -o BatchMode=no -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password,keyboard-interactive -- "$SSH_USER@$target:$guest_path" "$local_dest"
+  else scp "${scp_opts[@]}" -o BatchMode=yes -- "$SSH_USER@$target:$guest_path" "$local_dest"; fi
+  rcu_log "COPY_COMPLETE guest=$guest_path local=$local_dest"
+  notice "Kopiert nach: $local_dest"
 }

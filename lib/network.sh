@@ -47,22 +47,44 @@ arp_addresses() {
 }
 discover_addresses() {
   local budget="${1:-6}" ips macs limit=3 begin=$SECONDS remaining
-  ((budget>=1)) || return 1
+  ((budget>=1)) || { rcu_log "DISCOVER_ADDRESSES budget_too_low"; return 1; }
   ((budget>=limit)) || limit="$budget"
+  rcu_log "DISCOVER_ADDRESSES_START budget=${budget}s utmctl=$UTMCTL uuid=$VM_UUID"
   ips="$(bounded "$limit" "$UTMCTL" ip-address "$VM_UUID" 2>/dev/null | filter_addresses)" || ips=''
-  if [[ -z "$ips" ]]; then
-    remaining=$((budget-(SECONDS-begin)))
-    ((remaining>=1)) || return 1
-    ((remaining>=limit)) || limit="$remaining"
-    macs="$(vm_mac_addresses "$limit" 2>/dev/null)" || macs=''
-    if [[ -n "$macs" ]]; then
-      ips="$(dhcp_addresses "$macs" | filter_addresses)" || ips=''
-      if [[ -z "$ips" ]] && ((SECONDS-begin<budget)); then
-        ips="$(arp_addresses "$macs" | filter_addresses)" || ips=''
+  if [[ -n "$ips" ]]; then
+    rcu_log "DISCOVER_UTMCTL_OK ips=$ips"
+    printf '%s\n' "$ips"
+    return 0
+  fi
+  rcu_log "DISCOVER_UTMCTL_NO_IP"
+  remaining=$((budget-(SECONDS-begin)))
+  ((remaining>=1)) || { rcu_log "DISCOVER_TIMEOUT no_fallback_time"; return 1; }
+  ((remaining>=limit)) || limit="$remaining"
+  macs="$(vm_mac_addresses "$limit" 2>/dev/null)" || macs=''
+  if [[ -z "$macs" ]]; then
+    rcu_log "DISCOVER_MAC_EMPTY"
+  else
+    rcu_log "DISCOVER_MAC macs=$macs"
+  fi
+  if [[ -n "$macs" ]]; then
+    ips="$(dhcp_addresses "$macs" | filter_addresses)" || ips=''
+    if [[ -n "$ips" ]]; then
+      rcu_log "DISCOVER_DHCP_OK ips=$ips"
+      printf '%s\n' "$ips"
+      return 0
+    fi
+    rcu_log "DISCOVER_DHCP_NO_IP"
+    if ((SECONDS-begin<budget)); then
+      ips="$(arp_addresses "$macs" | filter_addresses)" || ips=''
+      if [[ -n "$ips" ]]; then
+        rcu_log "DISCOVER_ARP_OK ips=$ips"
+        printf '%s\n' "$ips"
+        return 0
       fi
+      rcu_log "DISCOVER_ARP_NO_IP"
     fi
   fi
-  [[ -n "$ips" ]] || return 1
-  printf '%s\n' "$ips"
+  rcu_log "DISCOVER_FAILED elapsed=$((SECONDS-begin))s budget=${budget}s"
+  return 1
 }
 choose_address() { choose_line 'Mehrere VM-Adressen: SSH-Ziel auswählen' "$1"; }

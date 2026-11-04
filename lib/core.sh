@@ -1,6 +1,26 @@
 #!/bin/bash
 # Strict data-only configuration, shared terminal UI and transport.
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+# Structured diagnostic log: ~/.local/logs/rcu/rcu-YYYY-MM-DD.log
+RCU_LOG_DIR="${HOME}/.local/logs/rcu"
+RCU_LOG_FILE=""
+_rcu_log_init() {
+  [[ -n "$RCU_LOG_FILE" ]] && return 0
+  local date_str
+  date_str="$(date +%Y-%m-%d)"
+  RCU_LOG_FILE="${RCU_LOG_DIR}/rcu-${date_str}.log"
+  mkdir -p "$RCU_LOG_DIR" 2>/dev/null || true
+  chmod 700 "$RCU_LOG_DIR" 2>/dev/null || true
+}
+rcu_log() {
+  _rcu_log_init || return 0
+  local ts
+  ts="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+  printf '%s  %s\n' "$ts" "$*" >> "$RCU_LOG_FILE" 2>/dev/null || true
+}
+die() {
+  rcu_log "FATAL: $*"
+  printf 'ERROR: %s\n' "$*" >&2; exit 1
+}
 ui_enabled() { [[ -t 1 && -t 2 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]] && command -v gum >/dev/null 2>&1; }
 notice() { printf '%s\n' "$*"; }
 ui_card() {
@@ -64,7 +84,7 @@ CONF="${RCU_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rcu/config}"
 CONFIG_VERSION=''; VM_UUID=''; VM_NAME=''; SSH_HOST=''; SSH_USER=''; SSH_KEY=''
 KEYCHAIN_SERVICE=''; AUTH_MODE=agent; ADDRESS_MODE=auto; SSH_PORT=22; WAIT_SECONDS=120; UTMCTL=''; LEGACY_SECRET=0
 # Help and release management must remain usable even with a broken old profile.
-case "${1:-}" in help|--help|--version|setup|update|rollback|uninstall) ;; *) _rcu_parse_config "$CONF" ;; esac
+case "${1:-}" in help|--help|--version|setup|update|rollback|uninstall|download|copy) ;; *) _rcu_parse_config "$CONF" ;; esac
 find_utmctl() {
   local candidate
   if [[ -n "${RCU_UTMCTL_PATH:-}" ]]; then candidate="$RCU_UTMCTL_PATH"
@@ -93,12 +113,15 @@ check() {
   [[ "$LEGACY_SECRET" == 0 ]] || die 'Legacy plaintext password refused. Run rcu setup to replace it with Keychain authentication.'
 }
 prepare_profile() {
+  _rcu_log_init
+  rcu_log "SESSION_START version=$(cat "$RCU_ROOT/VERSION" 2>/dev/null || echo unknown) cmd=${1:-}"
   if [[ "$CONFIG_VERSION" != 1 || -z "$VM_UUID" || -z "$SSH_USER" ]]; then
     user_notice 'Einmalige Einrichtung erforderlich. Bestehende Entwicklungsrechner-Vorgaben werden nicht übernommen.'
     setup_profile
   fi
   check
   ensure_vm
+  rcu_log "PROFILE_OK vm=$VM_NAME uuid=$VM_UUID user=$SSH_USER auth=$AUTH_MODE addr=$ADDRESS_MODE"
 }
 WAIT_STATUS_LINES=0
 render_wait_status() {
@@ -129,9 +152,20 @@ ssh_run() {
   if ((limit>0)); then bounded "$limit" "${command[@]}" "$@"; else "${command[@]}" "$@"; fi
 }
 ssh_probe() {
-  local result
-  result="$(ssh_run --probe "${SSH_PROBE_TIMEOUT:-8}" "$SSH_USER@$SSH_HOST" 'id -un' </dev/null)" || return 1
-  [[ "$result" == "$SSH_USER" ]]
+  local result rc=0
+  rcu_log "SSH_PROBE host=$SSH_HOST port=$SSH_PORT user=$SSH_USER auth=$AUTH_MODE"
+  result="$(ssh_run --probe "${SSH_PROBE_TIMEOUT:-8}" "$SSH_USER@$SSH_HOST" 'id -un' </dev/null)" || rc=$?
+  if ((rc>0)); then
+    rcu_log "SSH_PROBE_FAILED host=$SSH_HOST exit=$rc"
+    return 1
+  fi
+  if [[ "$result" == "$SSH_USER" ]]; then
+    rcu_log "SSH_PROBE_OK host=$SSH_HOST user=$result"
+    return 0
+  else
+    rcu_log "SSH_PROBE_USER_MISMATCH host=$SSH_HOST expected=$SSH_USER got=$result"
+    return 1
+  fi
 }
 ssh_terminal() { ssh_run -tt "$SSH_USER@$SSH_HOST"; }
 ensure_host_key() {
@@ -143,21 +177,28 @@ ensure_host_key() {
     [[ -O "$hosts" && -r "$hosts" && -w "$hosts" ]] || die 'Host-key file must be owned and readable/writable by current user.'
     chmod 600 "$hosts"
   fi
-  if [[ -f "$hosts" ]] && ssh-keygen -F "rcu-$VM_UUID" -f "$hosts" >/dev/null; then return 0; fi
+  if [[ -f "$hosts" ]] && ssh-keygen -F "rcu-$VM_UUID" -f "$hosts" >/dev/null; then
+    rcu_log "HOST_KEY enrolled alias=rcu-$VM_UUID"
+    return 0
+  fi
+  rcu_log "HOST_KEY_MISSING alias=rcu-$VM_UUID host=$SSH_HOST"
   [[ -t 0 && -t 1 ]] || die 'Host key not enrolled. Run rcu interactively and verify the displayed fingerprint against the VM.'
   scan="$(ssh-keyscan -T 4 -p "$SSH_PORT" "$SSH_HOST" 2>/dev/null)" || die 'Cannot retrieve SSH host key.'
   [[ -n "$scan" ]] || die 'No SSH host key received.'
   fingerprints="$(printf '%s\n' "$scan" | ssh-keygen -lf -)" || die 'Invalid SSH host key response.'
+  rcu_log "HOST_KEY_FINGERPRINT $fingerprints"
   ui_card 'SSH · Erstmalige Vertrauensprüfung' "$fingerprints"
   user_notice 'Fingerprints mit /etc/ssh/ssh_host_*_key.pub in der VM vergleichen. Nur bei Übereinstimmung yes eingeben.'
   IFS= read -r answer || die 'Host key enrollment cancelled.'
   [[ "$answer" == yes ]] || die 'Host key not trusted; nothing saved.'
   ( umask 077; printf '%s\n' "$scan" | awk -v alias="rcu-$VM_UUID" '!/^#/ && NF>=3 {print alias, $2, $3}' >> "$hosts" )
   chmod 600 "$hosts"
+  rcu_log "HOST_KEY_SAVED alias=rcu-$VM_UUID"
 }
 wait_for_ssh() {
-  local begin=$SECONDS elapsed=0 state ips remaining
+  local begin=$SECONDS elapsed=0 state ips remaining loop_count=0
   WAIT_STATUS_LINES=0
+  rcu_log "WAIT_FOR_SSH_START timeout=$WAIT_SECONDS addr_mode=$ADDRESS_MODE host=${SSH_HOST:-<empty>}"
   while ((elapsed<WAIT_SECONDS)); do
     remaining=$((WAIT_SECONDS-elapsed))
     state="$(UTM_QUERY_LIMIT="$remaining" utm_state 2>/dev/null || printf unknown)"
@@ -165,11 +206,17 @@ wait_for_ssh() {
       if [[ "$ADDRESS_MODE" == auto ]]; then
         if ips="$(discover_addresses "$remaining")" && [[ -n "$ips" ]]; then
           SSH_HOST="$(choose_address "$ips")" || return 1
-        else SSH_HOST=''; fi
+          rcu_log "ADDRESS_DISCOVERED host=$SSH_HOST"
+        else
+          SSH_HOST=''
+          rcu_log "ADDRESS_DISCOVERY_FAILED remaining=${remaining}s"
+        fi
       fi
       if [[ -n "$SSH_HOST" ]]; then
         valid_host "$SSH_HOST" || die 'Invalid SSH address.'
-        if bounded 2 nc -z -w 1 "$SSH_HOST" "$SSH_PORT" >/dev/null 2>&1; then
+        rcu_log "PORT_CHECK host=$SSH_HOST port=$SSH_PORT"
+        if bounded 3 nc -z -w 1 "$SSH_HOST" "$SSH_PORT" >/dev/null 2>&1; then
+          rcu_log "PORT_OPEN host=$SSH_HOST port=$SSH_PORT"
           ensure_host_key
           if [[ "$AUTH_MODE" == keychain && "${RCU_KEYCHAIN_NOTICE:-0}" != 1 ]]; then
             user_notice 'macOS-Keychain kann den Zugriff auf das VM-Passwort abfragen.'
@@ -177,36 +224,66 @@ wait_for_ssh() {
           fi
           remaining=$((WAIT_SECONDS-(SECONDS-begin)))
           ((remaining>0)) || break
-          if SSH_PROBE_TIMEOUT="$remaining" ssh_probe; then render_wait_status "$((SECONDS-begin))" "$state" authenticated; return 0; fi
+          if SSH_PROBE_TIMEOUT="$remaining" ssh_probe; then
+            rcu_log "SSH_READY host=$SSH_HOST elapsed=$((SECONDS-begin))s loops=$loop_count"
+            render_wait_status "$((SECONDS-begin))" "$state" authenticated
+            return 0
+          fi
           die 'SSH authentication or host-key verification failed. Run rcu setup for correct credentials. A publickey-only server needs an authorized key on the Mac; storing a password cannot enable server-side password login. Saved host keys are never replaced automatically.'
+        else
+          rcu_log "PORT_CLOSED host=$SSH_HOST port=$SSH_PORT"
         fi
       fi
+    else
+      rcu_log "VM_NOT_STARTED state=$state elapsed=${elapsed}s"
     fi
     elapsed=$((SECONDS-begin))
+    loop_count=$((loop_count+1))
     render_wait_status "$elapsed" "$state" 'warte auf Netzwerk / SSH'
     ((elapsed<WAIT_SECONDS)) || break
     sleep 1
     elapsed=$((SECONDS-begin))
   done
+  rcu_log "SSH_TIMEOUT elapsed=$((SECONDS-begin))s loops=$loop_count last_state=$state last_host=${SSH_HOST:-<empty>}"
   printf 'ERROR: SSH readiness timeout after %ss. No unambiguous reachable address. Check guest SSH/network, QEMU guest agent or DHCP; for forwarded ports use rcu setup --host HOST --port PORT.\n' "$((SECONDS-begin))" >&2
   return 1
 }
+# Renders a single help line: bold command + faint description, aligned.
+help_line() {
+  local cmd="$1" desc="$2"
+  if ui_enabled; then
+    local styled_cmd styled_desc joined
+    styled_cmd="$(gum style --bold --foreground 212 "$cmd")"
+    styled_desc="$(gum style --faint "$desc")"
+    gum join --horizontal "$styled_cmd" "$styled_desc"
+  else
+    printf '  %s  %s\n' "$cmd" "$desc"
+  fi
+}
 show_help() {
-  ui_card "RCU $(cat "$RCU_ROOT/VERSION") · Remote Control Unit" 'macOS → UTM → Gast-Terminal'
-  printf '%s\n' \
-    '  rcu                   VM starten und Terminal öffnen' \
-    '  rcu setup             VM und Gast-Zugang einmalig einrichten' \
-    '    --vm UUID --user NAME [--auth keychain|agent] [--key PATH]' \
-    '    Standard: Benutzername und Passwort einmalig speichern und prüfen.' \
-    '    [--host HOST --port PORT]  Expliziter Zugang, z.B. Portweiterleitung' \
-    '  rcu utm status        Nur Status lesen; kein VM-Start / Setup / Login' \
-    '  rcu utm start         Starten und SSH prüfen' \
-    '  rcu utm connect       Laufende VM und SSH prüfen' \
-    '  rcu utm shell         Gast-Terminal öffnen; exit lässt VM laufen' \
-    '  rcu utm health        Authentifizierung prüfen' \
-    '  rcu utm stop          Nur regulären Shutdown anfordern' \
-    '  rcu upload SRC DEST   Datei/Ordner in den Gast kopieren' \
-    '  rcu update DIR        Geprüftes Quellverzeichnis installieren' \
-    '  rcu rollback          Vorherigen Release aktivieren' \
-    '  rcu uninstall         Installation archivieren; Zugang behalten'
+  local version
+  version="$(cat "$RCU_ROOT/VERSION")"
+  if ui_enabled; then
+    gum style --border double --border-foreground 212 --padding '0 1' \
+      "$(gum style --bold "RCU $version · Remote Control Unit")" \
+      "$(gum style --faint 'macOS → UTM → Gast-Terminal')"
+  else
+    ui_card "RCU $version · Remote Control Unit" 'macOS → UTM → Gast-Terminal'
+  fi
+  help_line 'rcu' 'VM starten und Terminal öffnen'
+  help_line 'rcu setup' 'VM und Gast-Zugang einmalig einrichten'
+  help_line '  --vm UUID --user NAME' '[--auth keychain|agent] [--key PATH]'
+  help_line '  [--host HOST --port PORT]' 'Expliziter Zugang, z.B. Portweiterleitung'
+  help_line 'rcu upload SRC DEST' 'Datei/Ordner vom Mac in die VM kopieren'
+  help_line 'rcu copy SRC DEST' 'Datei/Ordner von der VM zum Mac kopieren'
+  help_line 'rcu download URL DIR' 'Datei von URL direkt in die VM herunterladen'
+  help_line 'rcu utm status' 'Nur Status lesen; kein VM-Start / Setup / Login'
+  help_line 'rcu utm start' 'Starten und SSH prüfen'
+  help_line 'rcu utm connect' 'Laufende VM und SSH prüfen'
+  help_line 'rcu utm shell' 'Gast-Terminal öffnen; exit lässt VM laufen'
+  help_line 'rcu utm health' 'Authentifizierung prüfen'
+  help_line 'rcu utm stop' 'Nur regulären Shutdown anfordern'
+  help_line 'rcu update DIR' 'Geprüftes Quellverzeichnis installieren'
+  help_line 'rcu rollback' 'Vorherigen Release aktivieren'
+  help_line 'rcu uninstall' 'Installation archivieren; Zugang behalten'
 }
