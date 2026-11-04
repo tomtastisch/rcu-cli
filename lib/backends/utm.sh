@@ -100,3 +100,35 @@ upload() {
   else scp "${scp_opts[@]}" -o BatchMode=yes -- "$src" "$SSH_USER@$target:$destination"; fi
   rcu_log "UPLOAD_COMPLETE src=$src dest=$destination"
 }
+# Downloads a file from a URL directly into the guest VM.
+download() {
+  [[ $# == 2 && "$1" == http* && "$2" != -* && "$2" != *[$'\001'-$'\037'$'\177']* ]] || die 'Usage: rcu download <url> <guest-directory>'
+  local url="$1" destination="$2"
+  rcu_log "DOWNLOAD_START url=$url dest=$destination"
+  utm_start
+  local filename
+  filename="$(basename "$url" | sed 's/[?#].*//')"
+  # Sanitize: reject empty or path-traversal filenames from the URL
+  [[ -n "$filename" && "$filename" != *'..'* ]] || die 'Invalid filename derived from URL.'
+  ssh_run "$SSH_USER@$SSH_HOST" "mkdir -p '$destination' && curl -fsSL -o '$destination/$filename' '$url'"
+  rcu_log "DOWNLOAD_COMPLETE url=$url dest=$destination/$filename"
+  notice "Heruntergeladen: $destination/$filename"
+}
+# Copies a file or directory from the guest VM back to the Mac.
+copy() {
+  [[ $# == 2 && "$1" != -* && "$2" != -* && "$1" != *[$'\001'-$'\037'$'\177']* && "$2" != *[$'\001'-$'\037'$'\177']* ]] || die 'Usage: rcu copy <guest-path> <local-destination>'
+  local guest_path="$1" local_dest="$2"
+  rcu_log "COPY_START guest=$guest_path local=$local_dest"
+  utm_start
+  local ssh_opts=()
+  ssh_options
+  local scp_opts=(-s -P "$SSH_PORT" "${ssh_opts[@]:2}")
+  local target="$SSH_HOST"; [[ "$target" != *:* ]] || target="[$target]"
+  if [[ "$AUTH_MODE" == keychain ]]; then
+    RCU_KEYCHAIN_SERVICE="${KEYCHAIN_SERVICE:-rcu.vm.$VM_UUID}" RCU_KEYCHAIN_ACCOUNT="$SSH_USER" \
+      SSH_ASKPASS="$RCU_ROOT/lib/ssh-askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-rcu:0}" \
+      scp "${scp_opts[@]}" -o BatchMode=no -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password,keyboard-interactive -- "$SSH_USER@$target:$guest_path" "$local_dest"
+  else scp "${scp_opts[@]}" -o BatchMode=yes -- "$SSH_USER@$target:$guest_path" "$local_dest"; fi
+  rcu_log "COPY_COMPLETE guest=$guest_path local=$local_dest"
+  notice "Kopiert nach: $local_dest"
+}

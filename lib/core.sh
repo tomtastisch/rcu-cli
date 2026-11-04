@@ -84,7 +84,7 @@ CONF="${RCU_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rcu/config}"
 CONFIG_VERSION=''; VM_UUID=''; VM_NAME=''; SSH_HOST=''; SSH_USER=''; SSH_KEY=''
 KEYCHAIN_SERVICE=''; AUTH_MODE=agent; ADDRESS_MODE=auto; SSH_PORT=22; WAIT_SECONDS=120; UTMCTL=''; LEGACY_SECRET=0
 # Help and release management must remain usable even with a broken old profile.
-case "${1:-}" in help|--help|--version|setup|update|rollback|uninstall) ;; *) _rcu_parse_config "$CONF" ;; esac
+case "${1:-}" in help|--help|--version|setup|update|rollback|uninstall|download|copy) ;; *) _rcu_parse_config "$CONF" ;; esac
 find_utmctl() {
   local candidate
   if [[ -n "${RCU_UTMCTL_PATH:-}" ]]; then candidate="$RCU_UTMCTL_PATH"
@@ -248,22 +248,42 @@ wait_for_ssh() {
   printf 'ERROR: SSH readiness timeout after %ss. No unambiguous reachable address. Check guest SSH/network, QEMU guest agent or DHCP; for forwarded ports use rcu setup --host HOST --port PORT.\n' "$((SECONDS-begin))" >&2
   return 1
 }
+# Renders a single help line: bold command + faint description, aligned.
+help_line() {
+  local cmd="$1" desc="$2"
+  if ui_enabled; then
+    local styled_cmd styled_desc joined
+    styled_cmd="$(gum style --bold --foreground 212 "$cmd")"
+    styled_desc="$(gum style --faint "$desc")"
+    gum join --horizontal "$styled_cmd" "$styled_desc"
+  else
+    printf '  %s  %s\n' "$cmd" "$desc"
+  fi
+}
 show_help() {
-  ui_card "RCU $(cat "$RCU_ROOT/VERSION") · Remote Control Unit" 'macOS → UTM → Gast-Terminal'
-  printf '%s\n' \
-    '  rcu                   VM starten und Terminal öffnen' \
-    '  rcu setup             VM und Gast-Zugang einmalig einrichten' \
-    '    --vm UUID --user NAME [--auth keychain|agent] [--key PATH]' \
-    '    Standard: Benutzername und Passwort einmalig speichern und prüfen.' \
-    '    [--host HOST --port PORT]  Expliziter Zugang, z.B. Portweiterleitung' \
-    '  rcu utm status        Nur Status lesen; kein VM-Start / Setup / Login' \
-    '  rcu utm start         Starten und SSH prüfen' \
-    '  rcu utm connect       Laufende VM und SSH prüfen' \
-    '  rcu utm shell         Gast-Terminal öffnen; exit lässt VM laufen' \
-    '  rcu utm health        Authentifizierung prüfen' \
-    '  rcu utm stop          Nur regulären Shutdown anfordern' \
-    '  rcu upload SRC DEST   Datei/Ordner in den Gast kopieren' \
-    '  rcu update DIR        Geprüftes Quellverzeichnis installieren' \
-    '  rcu rollback          Vorherigen Release aktivieren' \
-    '  rcu uninstall         Installation archivieren; Zugang behalten'
+  local version
+  version="$(cat "$RCU_ROOT/VERSION")"
+  if ui_enabled; then
+    gum style --border double --border-foreground 212 --padding '0 1' \
+      "$(gum style --bold "RCU $version · Remote Control Unit")" \
+      "$(gum style --faint 'macOS → UTM → Gast-Terminal')"
+  else
+    ui_card "RCU $version · Remote Control Unit" 'macOS → UTM → Gast-Terminal'
+  fi
+  help_line 'rcu' 'VM starten und Terminal öffnen'
+  help_line 'rcu setup' 'VM und Gast-Zugang einmalig einrichten'
+  help_line '  --vm UUID --user NAME' '[--auth keychain|agent] [--key PATH]'
+  help_line '  [--host HOST --port PORT]' 'Expliziter Zugang, z.B. Portweiterleitung'
+  help_line 'rcu upload SRC DEST' 'Datei/Ordner vom Mac in die VM kopieren'
+  help_line 'rcu copy SRC DEST' 'Datei/Ordner von der VM zum Mac kopieren'
+  help_line 'rcu download URL DIR' 'Datei von URL direkt in die VM herunterladen'
+  help_line 'rcu utm status' 'Nur Status lesen; kein VM-Start / Setup / Login'
+  help_line 'rcu utm start' 'Starten und SSH prüfen'
+  help_line 'rcu utm connect' 'Laufende VM und SSH prüfen'
+  help_line 'rcu utm shell' 'Gast-Terminal öffnen; exit lässt VM laufen'
+  help_line 'rcu utm health' 'Authentifizierung prüfen'
+  help_line 'rcu utm stop' 'Nur regulären Shutdown anfordern'
+  help_line 'rcu update DIR' 'Geprüftes Quellverzeichnis installieren'
+  help_line 'rcu rollback' 'Vorherigen Release aktivieren'
+  help_line 'rcu uninstall' 'Installation archivieren; Zugang behalten'
 }

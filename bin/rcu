@@ -22,10 +22,12 @@ case "${1:-}" in
     utm_start
     user_notice 'Gast-Terminal wird geöffnet. exit kehrt zu macOS zurück; die VM bleibt an.'
     ssh_terminal ;;
-  help|--help) [[ $# == 1 ]] || die 'Usage: rcu help'; show_help ;;
+  help|--help|-h) [[ $# == 1 ]] || die 'Usage: rcu help'; show_help ;;
   --version) [[ $# == 1 ]] || die 'Usage: rcu --version'; cat "$RCU_ROOT/VERSION" ;;
   setup) shift; setup_profile "$@" ;;
   upload) shift; upload "$@" ;;
+  download) shift; download "$@" ;;
+  copy) shift; copy "$@" ;;
   update)
     [[ $# -eq 2 && -f "$2/install.sh" ]] || die 'Usage: rcu update <trusted-source-repository-directory>'
     exec /bin/bash "$2/install.sh" ;;
@@ -47,5 +49,5 @@ case "${1:-}" in
       status) utm_status ;;
       *) die 'Usage: rcu utm {start|connect|shell|stop|health|status}' ;;
     esac ;;
-  *) die 'Usage: rcu {help|update|rollback|uninstall|utm}' ;;
+  *) die 'Usage: rcu {help|setup|upload|download|copy|update|rollback|uninstall|utm}' ;;
 esac
