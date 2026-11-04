@@ -248,42 +248,60 @@ wait_for_ssh() {
   printf 'ERROR: SSH readiness timeout after %ss. No unambiguous reachable address. Check guest SSH/network, QEMU guest agent or DHCP; for forwarded ports use rcu setup --host HOST --port PORT.\n' "$((SECONDS-begin))" >&2
   return 1
 }
-# Renders a single help line: bold command + faint description, aligned.
-help_line() {
-  local cmd="$1" desc="$2"
-  if ui_enabled; then
-    local styled_cmd styled_desc joined
-    styled_cmd="$(gum style --bold --foreground 212 "$cmd")"
-    styled_desc="$(gum style --faint "$desc")"
-    gum join --horizontal "$styled_cmd" "$styled_desc"
+# Prints one help row with a fixed-width command column and a faint description.
+_help_pad() {
+  local cmd="$1" desc="$2" width=28
+  local padded
+  if (( ${#cmd} >= width )); then
+    padded="$cmd"
   else
-    printf '  %s  %s\n' "$cmd" "$desc"
+    padded="$(printf "%-${width}s" "$cmd")"
+  fi
+  if ui_enabled; then
+    local styled_cmd styled_gap styled_desc
+    styled_cmd="$(gum style --bold --foreground 212 "$cmd" 2>/dev/null)" || styled_cmd="$cmd"
+    # Pad the styled command to the column width
+    local cmd_len=${#cmd}
+    local gap_needed=$(( width - cmd_len ))
+    if (( gap_needed > 0 )); then
+      styled_gap="$(printf '%*s' "$gap_needed" '')"
+    else
+      styled_gap=" "
+    fi
+    styled_desc="$(gum style --faint "$desc" 2>/dev/null)" || styled_desc="$desc"
+    printf '%s%s%s\n' "$styled_cmd" "$styled_gap" "$styled_desc"
+  else
+    printf '%s%s\n' "$padded" "$desc"
   fi
 }
 show_help() {
   local version
   version="$(cat "$RCU_ROOT/VERSION")"
   if ui_enabled; then
-    gum style --border double --border-foreground 212 --padding '0 1' \
-      "$(gum style --bold "RCU $version · Remote Control Unit")" \
-      "$(gum style --faint 'macOS → UTM → Gast-Terminal')"
+    gum style --border double --border-foreground 212 --padding '0 2' \
+      "$(gum style --bold "RCU $version  ·  Remote Control Unit")" \
+      "$(gum style --faint 'macOS → UTM → Gast-Terminal')" 2>/dev/null
   else
     ui_card "RCU $version · Remote Control Unit" 'macOS → UTM → Gast-Terminal'
   fi
-  help_line 'rcu' 'VM starten und Terminal öffnen'
-  help_line 'rcu setup' 'VM und Gast-Zugang einmalig einrichten'
-  help_line '  --vm UUID --user NAME' '[--auth keychain|agent] [--key PATH]'
-  help_line '  [--host HOST --port PORT]' 'Expliziter Zugang, z.B. Portweiterleitung'
-  help_line 'rcu upload SRC DEST' 'Datei/Ordner vom Mac in die VM kopieren'
-  help_line 'rcu copy SRC DEST' 'Datei/Ordner von der VM zum Mac kopieren'
-  help_line 'rcu download URL DIR' 'Datei von URL direkt in die VM herunterladen'
-  help_line 'rcu utm status' 'Nur Status lesen; kein VM-Start / Setup / Login'
-  help_line 'rcu utm start' 'Starten und SSH prüfen'
-  help_line 'rcu utm connect' 'Laufende VM und SSH prüfen'
-  help_line 'rcu utm shell' 'Gast-Terminal öffnen; exit lässt VM laufen'
-  help_line 'rcu utm health' 'Authentifizierung prüfen'
-  help_line 'rcu utm stop' 'Nur regulären Shutdown anfordern'
-  help_line 'rcu update DIR' 'Geprüftes Quellverzeichnis installieren'
-  help_line 'rcu rollback' 'Vorherigen Release aktivieren'
-  help_line 'rcu uninstall' 'Installation archivieren; Zugang behalten'
+  printf '\n'
+  _help_pad 'rcu' 'VM starten und Terminal öffnen'
+  _help_pad 'rcu setup' 'VM und Gast-Zugang einrichten'
+  _help_pad '  --vm UUID --user NAME' '[--auth keychain|agent]'
+  _help_pad '  [--host HOST --port PORT]' 'Expliziter Zugang (Portweiterleitung)'
+  printf '\n'
+  _help_pad 'rcu upload SRC DEST' 'Datei/Ordner vom Mac in die VM kopieren'
+  _help_pad 'rcu copy SRC DEST' 'Datei/Ordner von der VM zum Mac kopieren'
+  _help_pad 'rcu download URL DIR' 'Datei von URL direkt in die VM laden'
+  printf '\n'
+  _help_pad 'rcu utm status' 'Nur Status lesen'
+  _help_pad 'rcu utm start' 'Starten und SSH prüfen'
+  _help_pad 'rcu utm connect' 'Laufende VM und SSH prüfen'
+  _help_pad 'rcu utm shell' 'Gast-Terminal öffnen'
+  _help_pad 'rcu utm health' 'Authentifizierung prüfen'
+  _help_pad 'rcu utm stop' 'Regulären Shutdown anfordern'
+  printf '\n'
+  _help_pad 'rcu update DIR' 'Geprüftes Quellverzeichnis installieren'
+  _help_pad 'rcu rollback' 'Vorherigen Release aktivieren'
+  _help_pad 'rcu uninstall' 'Installation archivieren'
 }
