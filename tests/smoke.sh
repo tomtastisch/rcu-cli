@@ -217,7 +217,7 @@ else
 fi
 # Verify log directory permissions
 if [[ -d "$LOG_DIR" ]]; then
-  perms="$(stat -f '%Lp' "$LOG_DIR" 2>/dev/null || stat -c '%a' "$LOG_DIR" 2>/dev/null)"
+  if [[ "$(uname -s)" == Darwin ]]; then perms="$(stat -f '%Lp' "$LOG_DIR")"; else perms="$(stat -c '%a' "$LOG_DIR")"; fi
   if [[ "$perms" == "700" ]]; then
     pass 'log directory has 700 permissions'
   else
